@@ -45,7 +45,7 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-const apiKey = ""; // API Key will be injected by the environment automatically
+const apiKey = "AIzaSyCxk3RUscVFLcjNQWIoeVh-UyIb9ohWbEM"; // API Key will be injected by the environment automatically
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -247,7 +247,7 @@ const SmartFarmPro = () => {
 
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: {
