@@ -220,11 +220,18 @@ const SmartFarmPro = () => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
   };
 
-  // --- Gemini API Function ---
+  // --- Gemini API Function (Updated) ---
   const callGeminiAI = async (prompt, isAnalysis = false) => {
     setIsAiThinking(true);
     
-    // Construct system context with current sensor data
+    // ตรวจสอบว่าใส่ API Key หรือยัง
+    if (!apiKey || apiKey === "") {
+        setAiChatHistory(prev => [...prev, { role: 'model', text: '⚠️ กรุณาใส่ API Key ในโค้ดก่อนนะครับ (บรรทัดบนสุดของไฟล์ App.jsx)' }]);
+        setIsAiThinking(false);
+        return;
+    }
+
+    // Construct system context
     const farmContext = `
       Current Farm Sensor Data:
       - Temperature: ${sensorData.temp}°C
@@ -238,7 +245,6 @@ const SmartFarmPro = () => {
       
       Role: You are an expert agricultural AI assistant for a Smart Farm system.
       Instruction: Answer in Thai language. Be helpful, concise, and scientific.
-      If analyzing data, look for anomalies based on general crop standards (e.g. general vegetables or melons).
     `;
 
     const fullPrompt = isAnalysis 
@@ -246,6 +252,7 @@ const SmartFarmPro = () => {
       : prompt;
 
     try {
+      // ใช้ Backtick (`) ตรง URL นี้สำคัญมาก
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
@@ -261,33 +268,35 @@ const SmartFarmPro = () => {
         }
       );
 
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
       const data = await response.json();
       
       if (data.candidates && data.candidates[0].content) {
         const aiResponse = data.candidates[0].content.parts[0].text;
         
         if (isAnalysis) {
-          // If it's a quick analysis, add to chat history as a special summary
           setAiChatHistory(prev => [
             ...prev, 
             { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' },
             { role: 'model', text: aiResponse }
           ]);
         } else {
-          // Normal chat
           setAiChatHistory(prev => [...prev, { role: 'model', text: aiResponse }]);
         }
       } else {
         throw new Error("No response from AI");
       }
     } catch (error) {
-      console.error("AI Error:", error);
-      setAiChatHistory(prev => [...prev, { role: 'model', text: 'ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' }]);
+      console.error("AI Error Details:", error); // ดู Error เต็มๆ ได้ที่ Console (F12)
+      setAiChatHistory(prev => [...prev, { role: 'model', text: `เกิดข้อผิดพลาด: ${error.message}. ลองกด F12 ดู Console เพื่อเช็ครายละเอียดครับ` }]);
     } finally {
       setIsAiThinking(false);
     }
   };
-
+  
   const handleSendMessage = () => {
     if (!aiInput.trim()) return;
     
