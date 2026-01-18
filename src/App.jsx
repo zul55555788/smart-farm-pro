@@ -48,7 +48,7 @@ import {
 
 // --- Gemini API Configuration ---
 // ใช้ API Key ตัวล่าสุดที่คุณให้มาครับ (AIzaSyAYospo...)
-const apiKey = "AIzaSyDM6GtvfID3S11QOO8HW4OA7TmgnWkigrA"; 
+const apiKey = "AIzaSyBeVZyxQa8-JsMSnf7HKxiC1ayNY41Yf3o"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
