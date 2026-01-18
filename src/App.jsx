@@ -51,8 +51,7 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-// ใช้ API Key ใหม่ที่คุณให้มาครับ
-const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
+const apiKey = "AIzaSyDM6GtvfID3S11QOO8HW4OA7TmgnWkigrA"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -66,10 +65,8 @@ const LoginScreen = ({ onLogin }) => {
     setLoading(true);
     setError('');
     
-    // Simulate checking credentials
     setTimeout(() => {
       setLoading(false);
-      // Validate Username and Password
       if (username === 'SmartFarmPro' && password === '432548') {
         onLogin(username);
       } else {
@@ -231,7 +228,7 @@ const SmartFarmPro = () => {
     },
   ]);
 
-  // System Logs State
+  // System Logs State (สำหรับเก็บประวัติแจ้งเตือนใน Dashboard)
   const [systemLogs, setSystemLogs] = useState([
     { id: 1, time: '10:45 AM', message: 'ระบบอัตโนมัติ: เปิดปั๊มน้ำ เนื่องจากความชื้นต่ำกว่า 40%', type: 'info' },
     { id: 2, time: '09:30 AM', message: 'Modbus Read: อ่านค่า 7-in-1 สำเร็จ', type: 'success' },
@@ -400,7 +397,6 @@ const SmartFarmPro = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Gemini API Function (Robust Auto-Retry Updated) ---
   const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null, imageMimeType = null) => {
     setIsAiThinking(true);
     
@@ -434,15 +430,11 @@ const SmartFarmPro = () => {
       });
     }
 
-    // UPDATED: List of models to try in order (More exhaustive)
     const modelsToTry = [
-      "gemini-1.5-flash",
-      "gemini-1.5-flash-latest",
-      "gemini-1.5-flash-001",
-      "gemini-1.5-flash-002",
-      "gemini-1.5-pro",
-      "gemini-1.5-pro-001",
-      "gemini-1.5-pro-002",
+      "gemini-1.5-flash",       
+      "gemini-1.5-flash-001",   
+      "gemini-1.5-pro",         
+      "gemini-1.5-pro-001"      
     ];
 
     let success = false;
@@ -451,7 +443,6 @@ const SmartFarmPro = () => {
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Attempting with model: ${modelName}`);
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           {
@@ -462,20 +453,17 @@ const SmartFarmPro = () => {
         );
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `HTTP Error ${response.status}`);
+          throw new Error(`HTTP Error ${response.status}`);
         }
 
         const data = await response.json();
         if (data.candidates && data.candidates[0].content) {
           aiResponse = data.candidates[0].content.parts[0].text;
           success = true;
-          break; // Success! Exit loop
+          break; 
         }
       } catch (error) {
-        console.warn(`Model ${modelName} failed:`, error.message);
         finalError = error.message;
-        // Continue to next model in loop
       }
     }
 
@@ -1119,8 +1107,8 @@ const SmartFarmPro = () => {
 
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-800 mb-6">อุณหภูมิและความชื้นสัมพันธ์ (Temperature & Humidity)</h3>
-                <div className="h-80 w-full">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={mockGraphData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
@@ -1146,8 +1134,8 @@ const SmartFarmPro = () => {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                   <h3 className="font-bold text-slate-800 mb-6">ค่าความเป็นกรดด่าง (pH Level)</h3>
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={mockGraphData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="time" hide />
@@ -1161,8 +1149,8 @@ const SmartFarmPro = () => {
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                   <h3 className="font-bold text-slate-800 mb-6">ค่าการนำไฟฟ้าในดิน (EC)</h3>
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={mockGraphData}>
                         <defs>
                           <linearGradient id="colorEc" x1="0" y1="0" x2="0" y2="1">
