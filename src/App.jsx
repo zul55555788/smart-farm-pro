@@ -28,7 +28,9 @@ import {
   Bot,
   Sparkles,
   Send,
-  MessageSquare
+  MessageSquare,
+  Image as ImageIcon,
+  Camera
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -45,22 +47,31 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-const apiKey = "AIzaSyCxk3RUscVFLcjNQWIoeVh-UyIb9ohWbEM"; // API Key will be injected by the environment automatically
+// ใช้ Gemini 1.5 Flash ซึ่งรองรับทั้งข้อความและรูปภาพ
+const apiKey = "AIzaSyDgoF9_icN3JDsfsIURidM3pwsF4VcFr7o"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API call
+    setError('');
+    
+    // Simulate checking credentials
     setTimeout(() => {
       setLoading(false);
-      onLogin(username);
-    }, 1000);
+      // Validate Username and Password
+      if (username === 'SmartFarmPro' && password === '432548') {
+        onLogin(username);
+      } else {
+        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (กรุณาลองใหม่)');
+      }
+    }, 800);
   };
 
   return (
@@ -87,7 +98,7 @@ const LoginScreen = ({ onLogin }) => {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                  placeholder="admin"
+                  placeholder="SmartFarmPro"
                   required
                 />
               </div>
@@ -106,6 +117,14 @@ const LoginScreen = ({ onLogin }) => {
                 />
               </div>
             </div>
+
+            {error && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2 text-red-600 text-sm">
+                <AlertTriangle size={16} />
+                {error}
+              </div>
+            )}
+
             <button 
               type="submit" 
               disabled={loading}
@@ -186,6 +205,11 @@ const SmartFarmPro = () => {
   ]);
   const [aiInput, setAiInput] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
+  
+  // Image Upload State
+  const [selectedImage, setSelectedImage] = useState(null); // Stores the File object or data URL for preview
+  const fileInputRef = useRef(null);
+  
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -220,17 +244,38 @@ const SmartFarmPro = () => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
   };
 
-// --- Gemini API Function (แก้ไขแล้ว ใช้ Model มาตรฐาน) ---
-  const callGeminiAI = async (prompt, isAnalysis = false) => {
+  // Helper: Convert File to Base64
+  const convertToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Create a local URL for preview
+      const previewUrl = URL.createObjectURL(file);
+      setSelectedImage({ file, previewUrl });
+    }
+  };
+
+  const clearSelectedImage = () => {
+    if (selectedImage?.previewUrl) {
+      URL.revokeObjectURL(selectedImage.previewUrl);
+    }
+    setSelectedImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // --- Gemini API Function ---
+  const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null) => {
     setIsAiThinking(true);
     
-    // เช็ค API Key
-    if (!apiKey) {
-       setAiChatHistory(prev => [...prev, { role: 'model', text: '⚠️ อย่าลืมใส่ API Key ด้านบนสุดของไฟล์นะครับ' }]);
-       setIsAiThinking(false);
-       return;
-    }
-
+    // Construct system context with current sensor data
     const farmContext = `
       Current Farm Sensor Data:
       - Temperature: ${sensorData.temp}°C
@@ -238,65 +283,94 @@ const SmartFarmPro = () => {
       - Soil Moisture: ${sensorData.soilMoisture}%
       - pH: ${sensorData.ph}
       - EC: ${sensorData.ec} mS/cm
+      - NPK: N=${sensorData.n}, P=${sensorData.p}, K=${sensorData.k} mg/kg
       
-      Role: You are an expert agricultural AI assistant.
-      Instruction: Answer in Thai language.
+      Role: You are an expert agricultural AI assistant for a Smart Farm system.
+      Instruction: Answer in Thai language. Be helpful, concise, and scientific.
+      ${imageBase64 ? 'Note: The user has attached an image. Please analyze it carefully in the context of agriculture.' : ''}
     `;
 
     const fullPrompt = isAnalysis 
-      ? `Analyze farm health based on sensor data. Keep it short.`
+      ? `Based on the sensor data provided, please analyze the current farm health status and suggest immediate actions if needed. Keep it to 3 bullet points.`
       : prompt;
 
+    // Construct Payload
+    const parts = [
+      { text: farmContext + "\n\nUser Question: " + (fullPrompt || "วิเคราะห์รูปภาพนี้ให้หน่อย") }
+    ];
+
+    if (imageBase64) {
+      parts.push({
+        inline_data: {
+          mime_type: "image/jpeg", // Assume jpeg/png based on upload, simple handling
+          data: imageBase64
+        }
+      });
+    }
+
     try {
-      // *** จุดสำคัญคือบรรทัดนี้ครับ ต้องเป็น gemini-1.5-flash ***
+      // Use gemini-1.5-flash for multimodal support
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({
-            contents: [{
-              parts: [{ text: farmContext + "\n\nUser: " + fullPrompt }]
-            }]
+            contents: [{ parts: parts }]
           })
         }
       );
 
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} (Model Not Found or Key Invalid)`);
-      }
-
       const data = await response.json();
-      const aiResponse = data.candidates[0].content.parts[0].text;
       
-      if (isAnalysis) {
+      if (data.candidates && data.candidates[0].content) {
+        const aiResponse = data.candidates[0].content.parts[0].text;
+        
+        if (isAnalysis) {
           setAiChatHistory(prev => [
             ...prev, 
-            { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์ม' },
+            { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' },
             { role: 'model', text: aiResponse }
           ]);
-      } else {
+        } else {
           setAiChatHistory(prev => [...prev, { role: 'model', text: aiResponse }]);
+        }
+      } else {
+        throw new Error("No response from AI");
       }
-      
     } catch (error) {
-      console.error(error);
-      setAiChatHistory(prev => [...prev, { role: 'model', text: `เกิดข้อผิดพลาด: ${error.message}` }]);
+      console.error("AI Error:", error);
+      setAiChatHistory(prev => [...prev, { role: 'model', text: 'ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' }]);
     } finally {
       setIsAiThinking(false);
     }
   };
-  
-  const handleSendMessage = () => {
-    if (!aiInput.trim()) return;
+
+  const handleSendMessage = async () => {
+    if (!aiInput.trim() && !selectedImage) return;
     
+    let currentImageBase64 = null;
+    let chatMessage = { role: 'user', text: aiInput };
+
+    // Handle Image if exists
+    if (selectedImage) {
+      const base64Full = await convertToBase64(selectedImage.file);
+      currentImageBase64 = base64Full.split(',')[1]; // Remove 'data:image/...' prefix
+      chatMessage.image = base64Full; // For displaying in chat UI
+      if (!aiInput.trim()) chatMessage.text = "ส่งรูปภาพ...";
+    }
+
     // Add user message immediately
-    setAiChatHistory(prev => [...prev, { role: 'user', text: aiInput }]);
+    setAiChatHistory(prev => [...prev, chatMessage]);
+    
     const currentInput = aiInput;
     setAiInput('');
+    clearSelectedImage();
     
     // Call AI
-    callGeminiAI(currentInput);
+    callGeminiAI(currentInput, false, currentImageBase64);
   };
 
   const handleQuickAnalysis = () => {
@@ -560,7 +634,7 @@ const SmartFarmPro = () => {
             </div>
           )}
 
-          {/* VIEW: AI ASSISTANT (New Feature) */}
+          {/* VIEW: AI ASSISTANT (New Feature with Image Support) */}
           {activeTab === 'ai-assistant' && (
             <div className="h-[calc(100vh-8rem)] flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                {/* Chat Header */}
@@ -589,6 +663,11 @@ const SmartFarmPro = () => {
                        : 'bg-white text-slate-700 border border-slate-200 rounded-tl-none'
                      }`}>
                        {msg.role === 'model' && <div className="flex items-center gap-2 mb-2 text-indigo-500 font-bold text-xs"><Sparkles size={12} /> AI Advice</div>}
+                       {msg.image && (
+                         <div className="mb-3 rounded-lg overflow-hidden border border-white/20">
+                           <img src={msg.image} alt="User upload" className="max-w-full h-auto max-h-64" />
+                         </div>
+                       )}
                        {msg.text}
                      </div>
                    </div>
@@ -606,20 +685,52 @@ const SmartFarmPro = () => {
                  <div ref={chatEndRef}></div>
                </div>
 
-               {/* Chat Input */}
+               {/* Chat Input Area with Image Upload */}
                <div className="p-4 bg-white border-t border-slate-100">
-                 <div className="flex gap-2 relative">
+                 {/* Image Preview Area */}
+                 {selectedImage && (
+                   <div className="mb-2 flex items-center gap-2 bg-indigo-50 p-2 rounded-lg w-fit border border-indigo-100">
+                     <img src={selectedImage.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-md" />
+                     <div className="flex flex-col">
+                        <span className="text-xs text-indigo-700 font-medium truncate max-w-[150px]">{selectedImage.file.name}</span>
+                        <span className="text-[10px] text-indigo-400">พร้อมส่งให้ AI วิเคราะห์</span>
+                     </div>
+                     <button onClick={clearSelectedImage} className="p-1 hover:bg-indigo-200 rounded-full text-indigo-500 transition-colors ml-2">
+                       <X size={14} />
+                     </button>
+                   </div>
+                 )}
+
+                 <div className="flex gap-2 relative items-end">
+                   {/* Hidden File Input */}
+                   <input 
+                      type="file" 
+                      accept="image/*" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      onChange={handleImageSelect}
+                   />
+                   
+                   {/* Upload Button */}
+                   <button 
+                      onClick={() => fileInputRef.current.click()}
+                      className="p-3 mb-[1px] bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 hover:text-indigo-600 transition-all border border-slate-200"
+                      title="แนบรูปภาพ"
+                   >
+                     <Camera size={20} />
+                   </button>
+
                    <input 
                     type="text" 
                     value={aiInput}
                     onChange={(e) => setAiInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="ถามปัญหาการเกษตร หรือขอคำแนะนำ..."
+                    placeholder={selectedImage ? "พิมพ์คำถามเกี่ยวกับรูปภาพ..." : "ถามปัญหาการเกษตร..."}
                     className="flex-1 pl-4 pr-12 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-slate-50"
                    />
                    <button 
                     onClick={handleSendMessage}
-                    disabled={isAiThinking || !aiInput.trim()}
+                    disabled={isAiThinking || (!aiInput.trim() && !selectedImage)}
                     className="absolute right-2 top-2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all"
                    >
                      <Send size={18} />
