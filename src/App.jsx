@@ -30,7 +30,11 @@ import {
   Send,
   MessageSquare,
   Image as ImageIcon,
-  Camera
+  Camera,
+  Clock,
+  Edit3,
+  Calendar,
+  ChevronRight
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -47,7 +51,6 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-// ใช้ Gemini 1.5 Flash ซึ่งรองรับทั้งข้อความและรูปภาพ
 const apiKey = "AIzaSyDM6GtvfID3S11QOO8HW4OA7TmgnWkigrA"; 
 
 // 1. Login Component
@@ -62,10 +65,8 @@ const LoginScreen = ({ onLogin }) => {
     setLoading(true);
     setError('');
     
-    // Simulate checking credentials
     setTimeout(() => {
       setLoading(false);
-      // Validate Username and Password
       if (username === 'SmartFarmPro' && password === '432548') {
         onLogin(username);
       } else {
@@ -193,11 +194,68 @@ const SmartFarmPro = () => {
     { id: 'd4', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: 'Yesterday' },
   ]);
 
+  // Enhanced Rules State
   const [rules, setRules] = useState([
-    { id: 1, name: 'รดน้ำเมื่อดินแห้ง', condition: 'ความชื้นดิน < 40%', action: 'เปิดปั๊มน้ำ 5 นาที', active: true },
-    { id: 2, name: 'ระบายอากาศร้อน', condition: 'อุณหภูมิ > 35°C', action: 'เปิดพัดลม', active: true },
-    { id: 3, name: 'เตือนค่า pH', condition: 'pH < 5.5 หรือ > 7.5', action: 'แจ้งเตือน Line Notify', active: false },
+    { 
+      id: 1, 
+      name: 'รดน้ำเมื่อดินแห้ง', 
+      sensor: 'soilMoisture', 
+      operator: '<', 
+      value: 40, 
+      actionDevice: 'd1', 
+      actionState: true, 
+      active: true 
+    },
+    { 
+      id: 2, 
+      name: 'ระบายอากาศร้อน', 
+      sensor: 'temp', 
+      operator: '>', 
+      value: 35, 
+      actionDevice: 'd2', 
+      actionState: true, 
+      active: true 
+    },
+    { 
+      id: 3, 
+      name: 'เตือนค่า pH สูง', 
+      sensor: 'ph', 
+      operator: '>', 
+      value: 7.5, 
+      actionDevice: 'notify', 
+      actionState: true, 
+      active: false 
+    },
   ]);
+
+  // System Logs State (สำหรับเก็บประวัติแจ้งเตือนใน Dashboard)
+  const [systemLogs, setSystemLogs] = useState([
+    { id: 1, time: '10:45 AM', message: 'ระบบอัตโนมัติ: เปิดปั๊มน้ำ เนื่องจากความชื้นต่ำกว่า 40%', type: 'info' },
+    { id: 2, time: '09:30 AM', message: 'Modbus Read: อ่านค่า 7-in-1 สำเร็จ', type: 'success' },
+    { id: 3, time: '08:00 AM', message: 'System Startup: เชื่อมต่อ WiFi สำเร็จ', type: 'normal' },
+  ]);
+
+  // Function to add a log
+  const addSystemLog = (message, type = 'info') => {
+    const newLog = {
+      id: Date.now(),
+      time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      message,
+      type
+    };
+    setSystemLogs(prev => [newLog, ...prev].slice(0, 10)); // เก็บแค่ 10 รายการล่าสุด
+  };
+
+  // State for Add Rule Modal
+  const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
+  const [newRule, setNewRule] = useState({
+    name: '',
+    sensor: 'temp',
+    operator: '>',
+    value: '',
+    actionDevice: 'd1',
+    actionState: 'true'
+  });
 
   // AI Chat State
   const [aiChatHistory, setAiChatHistory] = useState([
@@ -207,9 +265,8 @@ const SmartFarmPro = () => {
   const [isAiThinking, setIsAiThinking] = useState(false);
   
   // Image Upload State
-  const [selectedImage, setSelectedImage] = useState(null); // Stores the File object or data URL for preview
+  const [selectedImage, setSelectedImage] = useState(null); 
   const fileInputRef = useRef(null);
-  
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -218,33 +275,103 @@ const SmartFarmPro = () => {
     }
   }, [aiChatHistory]);
 
+  // Main Simulation Loop
   useEffect(() => {
     if (isLoggedIn) {
       const interval = setInterval(() => {
-        setSensorData(prev => ({
-          temp: +(prev.temp + (Math.random() * 0.2 - 0.1)).toFixed(1),
-          humidity: Math.round(prev.humidity + (Math.random() * 2 - 1)),
-          soilMoisture: Math.round(prev.soilMoisture + (Math.random() * 1 - 0.5)),
-          ph: +(prev.ph + (Math.random() * 0.1 - 0.05)).toFixed(1),
-          ec: +(prev.ec + (Math.random() * 0.02 - 0.01)).toFixed(2),
-          n: prev.n,
-          p: prev.p,
-          k: prev.k
-        }));
+        setSensorData(prev => {
+          const newData = {
+            temp: +(prev.temp + (Math.random() * 0.2 - 0.1)).toFixed(1),
+            humidity: Math.round(prev.humidity + (Math.random() * 2 - 1)),
+            soilMoisture: Math.round(prev.soilMoisture + (Math.random() * 1 - 0.5)),
+            ph: +(prev.ph + (Math.random() * 0.1 - 0.05)).toFixed(1),
+            ec: +(prev.ec + (Math.random() * 0.02 - 0.01)).toFixed(2),
+            n: prev.n,
+            p: prev.p,
+            k: prev.k
+          };
+
+          // Check Automation Rules
+          rules.forEach(rule => {
+            if (!rule.active) return;
+
+            let conditionMet = false;
+            const sensorValue = newData[rule.sensor];
+
+            if (rule.operator === '>' && sensorValue > rule.value) conditionMet = true;
+            if (rule.operator === '<' && sensorValue < rule.value) conditionMet = true;
+            if (rule.operator === '=' && sensorValue == rule.value) conditionMet = true;
+
+            if (conditionMet && rule.actionDevice !== 'notify') {
+              setDevices(currentDevices => 
+                currentDevices.map(d => {
+                  if (d.id === rule.actionDevice && d.status !== rule.actionState) {
+                    // Trigger action only once to avoid spamming logs
+                    // In a real app, this logic would be more complex
+                    return { ...d, status: rule.actionState, lastActive: 'Auto Rule' };
+                  }
+                  return d;
+                })
+              );
+            }
+          });
+
+          return newData;
+        });
       }, 2000);
       return () => clearInterval(interval);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, rules]);
 
   const toggleDevice = (id) => {
-    setDevices(prev => prev.map(d => d.id === id ? { ...d, status: !d.status } : d));
+    setDevices(prev => prev.map(d => {
+      if (d.id === id) {
+        addSystemLog(`สั่งงานด้วยมือ: ${!d.status ? 'เปิด' : 'ปิด'} ${d.name}`, 'normal');
+        return { ...d, status: !d.status };
+      }
+      return d;
+    }));
   };
 
   const toggleRule = (id) => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
   };
 
-  // Helper: Convert File to Base64
+  // --- DELETE RULE FUNCTION (With Logging) ---
+  const deleteRule = (id, ruleName) => {
+    if (window.confirm(`คุณต้องการลบกฎ "${ruleName}" ใช่หรือไม่?`)) {
+      setRules(prev => prev.filter(r => r.id !== id));
+      addSystemLog(`ลบกฎอัตโนมัติ: ${ruleName}`, 'warning'); // บันทึกลง Dashboard
+    }
+  };
+
+  // --- ADD RULE FUNCTION (With Logging) ---
+  const handleAddRule = (e) => {
+    e.preventDefault();
+    const id = rules.length > 0 ? Math.max(...rules.map(r => r.id)) + 1 : 1;
+    const ruleToAdd = {
+      id,
+      name: newRule.name || `Rule #${id}`,
+      sensor: newRule.sensor,
+      operator: newRule.operator,
+      value: parseFloat(newRule.value),
+      actionDevice: newRule.actionDevice,
+      actionState: newRule.actionState === 'true',
+      active: true
+    };
+    setRules([...rules, ruleToAdd]);
+    addSystemLog(`เพิ่มกฎใหม่: ${ruleToAdd.name}`, 'success'); // บันทึกลง Dashboard
+    setIsAddRuleModalOpen(false);
+    setNewRule({
+      name: '',
+      sensor: 'temp',
+      operator: '>',
+      value: '',
+      actionDevice: 'd1',
+      actionState: 'true'
+    });
+  };
+
   const convertToBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -257,7 +384,6 @@ const SmartFarmPro = () => {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Create a local URL for preview
       const previewUrl = URL.createObjectURL(file);
       setSelectedImage({ file, previewUrl });
     }
@@ -271,11 +397,9 @@ const SmartFarmPro = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Gemini API Function ---
-  const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null) => {
+  const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null, imageMimeType = null) => {
     setIsAiThinking(true);
     
-    // Construct system context with current sensor data
     const farmContext = `
       Current Farm Sensor Data:
       - Temperature: ${sensorData.temp}°C
@@ -283,94 +407,103 @@ const SmartFarmPro = () => {
       - Soil Moisture: ${sensorData.soilMoisture}%
       - pH: ${sensorData.ph}
       - EC: ${sensorData.ec} mS/cm
-      - NPK: N=${sensorData.n}, P=${sensorData.p}, K=${sensorData.k} mg/kg
       
-      Role: You are an expert agricultural AI assistant for a Smart Farm system.
-      Instruction: Answer in Thai language. Be helpful, concise, and scientific.
-      ${imageBase64 ? 'Note: The user has attached an image. Please analyze it carefully in the context of agriculture.' : ''}
+      Role: You are an expert agricultural AI assistant.
+      Instruction: Answer in Thai language. Concise and scientific.
+      ${imageBase64 ? 'Note: User attached an image. Analyze it.' : ''}
     `;
 
     const fullPrompt = isAnalysis 
-      ? `Based on the sensor data provided, please analyze the current farm health status and suggest immediate actions if needed. Keep it to 3 bullet points.`
+      ? `Based on the sensor data provided, analyze farm health. 3 bullet points.`
       : prompt;
 
-    // Construct Payload
     const parts = [
-      { text: farmContext + "\n\nUser Question: " + (fullPrompt || "วิเคราะห์รูปภาพนี้ให้หน่อย") }
+      { text: farmContext + "\n\nUser: " + (fullPrompt || "Analyze image") }
     ];
 
     if (imageBase64) {
       parts.push({
         inline_data: {
-          mime_type: "image/jpeg", // Assume jpeg/png based on upload, simple handling
+          mime_type: imageMimeType || "image/jpeg",
           data: imageBase64
         }
       });
     }
 
-    try {
-      // Use gemini-1.5-flash for multimodal support
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{ parts: parts }]
-          })
-        }
-      );
+    const modelsToTry = [
+      "gemini-1.5-flash",       
+      "gemini-1.5-flash-001",   
+      "gemini-1.5-pro",         
+      "gemini-1.5-pro-001"      
+    ];
 
-      const data = await response.json();
-      
-      if (data.candidates && data.candidates[0].content) {
-        const aiResponse = data.candidates[0].content.parts[0].text;
-        
-        if (isAnalysis) {
-          setAiChatHistory(prev => [
-            ...prev, 
-            { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' },
-            { role: 'model', text: aiResponse }
-          ]);
-        } else {
-          setAiChatHistory(prev => [...prev, { role: 'model', text: aiResponse }]);
+    let success = false;
+    let aiResponse = "";
+    let finalError = "";
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: parts }] })
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error ${response.status}`);
         }
-      } else {
-        throw new Error("No response from AI");
+
+        const data = await response.json();
+        if (data.candidates && data.candidates[0].content) {
+          aiResponse = data.candidates[0].content.parts[0].text;
+          success = true;
+          break; 
+        }
+      } catch (error) {
+        finalError = error.message;
       }
-    } catch (error) {
-      console.error("AI Error:", error);
-      setAiChatHistory(prev => [...prev, { role: 'model', text: 'ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' }]);
-    } finally {
-      setIsAiThinking(false);
     }
+
+    if (success) {
+      const responseMsg = { role: 'model', text: aiResponse };
+      if (isAnalysis) {
+        setAiChatHistory(prev => [...prev, { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' }, responseMsg]);
+      } else {
+        setAiChatHistory(prev => [...prev, responseMsg]);
+      }
+    } else {
+      setAiChatHistory(prev => [...prev, { role: 'model', text: `ขออภัยครับ ระบบ AI ขัดข้อง: ${finalError}` }]);
+    }
+    
+    setIsAiThinking(false);
   };
 
   const handleSendMessage = async () => {
     if (!aiInput.trim() && !selectedImage) return;
     
     let currentImageBase64 = null;
+    let currentMimeType = null;
     let chatMessage = { role: 'user', text: aiInput };
 
-    // Handle Image if exists
     if (selectedImage) {
       const base64Full = await convertToBase64(selectedImage.file);
-      currentImageBase64 = base64Full.split(',')[1]; // Remove 'data:image/...' prefix
-      chatMessage.image = base64Full; // For displaying in chat UI
+      currentImageBase64 = base64Full.split(',')[1];
+      currentMimeType = selectedImage.file.type;
+      
+      chatMessage.image = base64Full;
       if (!aiInput.trim()) chatMessage.text = "ส่งรูปภาพ...";
     }
 
-    // Add user message immediately
     setAiChatHistory(prev => [...prev, chatMessage]);
     
     const currentInput = aiInput;
     setAiInput('');
     clearSelectedImage();
     
-    // Call AI
-    callGeminiAI(currentInput, false, currentImageBase64);
+    callGeminiAI(currentInput, false, currentImageBase64, currentMimeType);
   };
 
   const handleQuickAnalysis = () => {
@@ -382,8 +515,24 @@ const SmartFarmPro = () => {
     return <LoginScreen onLogin={(user) => { setCurrentUser(user); setIsLoggedIn(true); }} />;
   }
 
-  // --- Sub-components for Layout ---
+  const getDeviceName = (id) => {
+    if (id === 'notify') return 'แจ้งเตือน Line';
+    const dev = devices.find(d => d.id === id);
+    return dev ? dev.name : id;
+  };
 
+  const getSensorLabel = (key) => {
+    const labels = {
+      temp: 'อุณหภูมิ',
+      humidity: 'ความชื้น',
+      soilMoisture: 'ความชื้นดิน',
+      ph: 'pH',
+      ec: 'EC'
+    };
+    return labels[key] || key;
+  };
+
+  // --- Sub-components ---
   const SidebarItem = ({ id, icon: Icon, label, special }) => (
     <button 
       onClick={() => { setActiveTab(id); setSidebarOpen(false); }}
@@ -437,8 +586,119 @@ const SmartFarmPro = () => {
   );
 
   return (
-    <div className="flex h-screen bg-[#F1F5F9] font-sans text-slate-800 overflow-hidden">
+    <div className="flex h-screen bg-[#F1F5F9] font-sans text-slate-800 overflow-hidden relative">
       
+      {/* ADD RULE MODAL */}
+      {isAddRuleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-lg text-slate-800">เพิ่มกฎอัตโนมัติ (Add Rule)</h3>
+              <button onClick={() => setIsAddRuleModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleAddRule} className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-2">ชื่อกฎ</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="เช่น เปิดปั๊มเมื่อดินแห้ง"
+                  value={newRule.name}
+                  onChange={(e) => setNewRule({...newRule, name: e.target.value})}
+                  className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-slate-600 mb-2">เงื่อนไข (IF)</label>
+                  <select 
+                    value={newRule.sensor}
+                    onChange={(e) => setNewRule({...newRule, sensor: e.target.value})}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-sm"
+                  >
+                    <option value="temp">อุณหภูมิ</option>
+                    <option value="humidity">ความชื้นอากาศ</option>
+                    <option value="soilMoisture">ความชื้นดิน</option>
+                    <option value="ph">pH</option>
+                    <option value="ec">EC</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-2">เครื่องหมาย</label>
+                  <select 
+                    value={newRule.operator}
+                    onChange={(e) => setNewRule({...newRule, operator: e.target.value})}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-sm"
+                  >
+                    <option value=">">มากกว่า</option>
+                    <option value="<">น้อยกว่า</option>
+                    <option value="=">เท่ากับ</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-2">ค่า (Value)</label>
+                  <input 
+                    type="number" 
+                    required
+                    step="0.1"
+                    value={newRule.value}
+                    onChange={(e) => setNewRule({...newRule, value: e.target.value})}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-2">สั่งงาน (THEN)</label>
+                  <select 
+                    value={newRule.actionDevice}
+                    onChange={(e) => setNewRule({...newRule, actionDevice: e.target.value})}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-sm"
+                  >
+                    {devices.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                    <option value="notify">แจ้งเตือน Line</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-2">สถานะ (Action)</label>
+                  <select 
+                    value={newRule.actionState}
+                    onChange={(e) => setNewRule({...newRule, actionState: e.target.value})}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none text-sm"
+                  >
+                    <option value="true">เปิด (ON)</option>
+                    <option value="false">ปิด (OFF)</option>
+                    <option value="notify">ส่งข้อความ</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddRuleModalOpen(false)}
+                  className="px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  type="submit"
+                  className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium shadow-lg shadow-emerald-200"
+                >
+                  บันทึกกฎ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col`}>
         <div className="p-6 flex items-center gap-3 border-b border-slate-800">
@@ -492,6 +752,12 @@ const SmartFarmPro = () => {
           </div>
 
           <div className="flex items-center gap-4">
+             {/* Last Update Time */}
+             <div className="text-right hidden xl:block">
+               <p className="text-xs text-slate-400">Last Update</p>
+               <p className="text-sm font-mono font-medium text-slate-600">{new Date().toLocaleTimeString('th-TH')}</p>
+             </div>
+             
              <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100 rounded-full">
                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                <span className="text-xs font-semibold text-emerald-700">ESP32 Online</span>
@@ -613,31 +879,31 @@ const SmartFarmPro = () => {
                     <Cpu size={20} className="text-purple-500"/> แจ้งเตือนระบบ
                   </h3>
                   <div className="space-y-4 relative pl-4 border-l-2 border-slate-100">
-                     <div className="relative mb-4">
-                       <span className="absolute -left-[21px] top-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white"></span>
-                       <p className="text-xs text-slate-400 mb-1">10:45 AM</p>
-                       <p className="text-sm text-slate-700">ระบบอัตโนมัติ: <span className="font-semibold text-emerald-600">เปิดปั๊มน้ำ</span> เนื่องจากความชื้นต่ำกว่า 40%</p>
-                     </div>
-                     <div className="relative mb-4">
-                       <span className="absolute -left-[21px] top-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></span>
-                       <p className="text-xs text-slate-400 mb-1">09:30 AM</p>
-                       <p className="text-sm text-slate-700">Modbus Read: อ่านค่า 7-in-1 สำเร็จ</p>
-                     </div>
-                     <div className="relative">
-                       <span className="absolute -left-[21px] top-1 w-3 h-3 bg-slate-300 rounded-full border-2 border-white"></span>
-                       <p className="text-xs text-slate-400 mb-1">08:00 AM</p>
-                       <p className="text-sm text-slate-700">System Startup: เชื่อมต่อ WiFi สำเร็จ</p>
-                     </div>
+                     {systemLogs.length === 0 ? (
+                       <p className="text-sm text-slate-400">ยังไม่มีการแจ้งเตือนใหม่</p>
+                     ) : (
+                       systemLogs.map(log => (
+                         <div key={log.id} className="relative mb-4 last:mb-0">
+                           <span className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${
+                             log.type === 'success' ? 'bg-emerald-500' :
+                             log.type === 'warning' ? 'bg-orange-500' :
+                             log.type === 'normal' ? 'bg-blue-500' :
+                             'bg-slate-400'
+                           }`}></span>
+                           <p className="text-xs text-slate-400 mb-1">{log.time}</p>
+                           <p className="text-sm text-slate-700">{log.message}</p>
+                         </div>
+                       ))
+                     )}
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* VIEW: AI ASSISTANT (New Feature with Image Support) */}
+          {/* VIEW: AI ASSISTANT */}
           {activeTab === 'ai-assistant' && (
             <div className="h-[calc(100vh-8rem)] flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-               {/* Chat Header */}
                <div className="p-4 border-b border-slate-100 bg-indigo-50 flex justify-between items-center">
                  <div className="flex items-center gap-3">
                    <div className="bg-indigo-500 p-2 rounded-lg text-white">
@@ -653,7 +919,6 @@ const SmartFarmPro = () => {
                  </div>
                </div>
 
-               {/* Chat History */}
                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
                  {aiChatHistory.map((msg, idx) => (
                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -685,9 +950,7 @@ const SmartFarmPro = () => {
                  <div ref={chatEndRef}></div>
                </div>
 
-               {/* Chat Input Area with Image Upload */}
                <div className="p-4 bg-white border-t border-slate-100">
-                 {/* Image Preview Area */}
                  {selectedImage && (
                    <div className="mb-2 flex items-center gap-2 bg-indigo-50 p-2 rounded-lg w-fit border border-indigo-100">
                      <img src={selectedImage.previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-md" />
@@ -702,7 +965,6 @@ const SmartFarmPro = () => {
                  )}
 
                  <div className="flex gap-2 relative items-end">
-                   {/* Hidden File Input */}
                    <input 
                       type="file" 
                       accept="image/*" 
@@ -710,8 +972,6 @@ const SmartFarmPro = () => {
                       className="hidden" 
                       onChange={handleImageSelect}
                    />
-                   
-                   {/* Upload Button */}
                    <button 
                       onClick={() => fileInputRef.current.click()}
                       className="p-3 mb-[1px] bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 hover:text-indigo-600 transition-all border border-slate-200"
@@ -757,12 +1017,10 @@ const SmartFarmPro = () => {
               <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h3 className="font-bold text-lg text-slate-800">ข้อมูลเซ็นเซอร์ย้อนหลัง (Data Log)</h3>
                 <div className="flex gap-2">
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium">
-                    <Download size={16} /> Export CSV
-                  </button>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium">
-                    <Filter size={16} /> Filter
-                  </button>
+                  <div className="flex items-center border border-slate-200 rounded-lg px-2 bg-slate-50">
+                    <Calendar size={16} className="text-slate-400 mr-2"/>
+                    <input type="date" className="bg-transparent border-none text-sm text-slate-600 focus:outline-none py-1.5"/>
+                  </div>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -884,23 +1142,28 @@ const SmartFarmPro = () => {
                         <YAxis domain={[0, 14]} axisLine={false} tickLine={false} />
                         <Tooltip />
                         <Line type="monotone" dataKey="ph" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-                        {/* Reference Line for optimal pH */}
                         <Line type="monotone" dataKey={() => 7} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1} dot={false} name="Neutral" />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6">ค่าความชื้นในดิน (Soil Moisture)</h3>
+                  <h3 className="font-bold text-slate-800 mb-6">ค่าการนำไฟฟ้าในดิน (EC)</h3>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={mockGraphData}>
+                      <AreaChart data={mockGraphData}>
+                        <defs>
+                          <linearGradient id="colorEc" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="time" hide />
-                        <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, 3]} axisLine={false} tickLine={false} />
                         <Tooltip />
-                        <Bar dataKey="soilMoisture" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      </BarChart>
+                        <Area type="monotone" dataKey="ec" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorEc)" />
+                      </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -908,12 +1171,15 @@ const SmartFarmPro = () => {
             </div>
           )}
 
-          {/* VIEW: AUTOMATION */}
+          {/* VIEW: AUTOMATION (Restored) */}
           {activeTab === 'automation' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
                  <h3 className="text-lg font-bold text-slate-800">กฎการทำงานอัตโนมัติ (Automation Rules)</h3>
-                 <button className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium">
+                 <button 
+                  onClick={() => setIsAddRuleModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium shadow-md shadow-slate-200"
+                 >
                     <Plus size={16} /> เพิ่มกฎใหม่ (Add Rule)
                  </button>
               </div>
@@ -928,24 +1194,38 @@ const SmartFarmPro = () => {
                           {rule.active ? 'ACTIVE' : 'INACTIVE'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg inline-flex">
-                        <span className="font-mono font-medium text-blue-600">IF {rule.condition}</span>
-                        <span className="text-slate-400">→</span>
-                        <span className="font-mono font-medium text-emerald-600">THEN {rule.action}</span>
+                      <div className="flex items-center gap-4 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg inline-flex flex-wrap">
+                        <span className="font-mono font-medium text-blue-600 uppercase flex items-center gap-1">
+                          IF {getSensorLabel(rule.sensor)} {rule.operator} {rule.value}
+                        </span>
+                        <span className="text-slate-400"><ChevronRight size={16}/></span>
+                        <span className="font-mono font-medium text-emerald-600 uppercase flex items-center gap-1">
+                          THEN {getDeviceName(rule.actionDevice)} {rule.actionDevice === 'notify' ? '' : (rule.actionState ? '(ON)' : '(OFF)')}
+                        </span>
                       </div>
                     </div>
                     
                     <div className="flex items-center gap-4">
-                       <label className="relative inline-flex items-center cursor-pointer">
+                       <label className="relative inline-flex items-center cursor-pointer" title="เปิด/ปิด กฎนี้">
                         <input type="checkbox" checked={rule.active} onChange={() => toggleRule(rule.id)} className="sr-only peer" />
                         <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                       </label>
-                      <button className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
+                      <button 
+                        onClick={() => deleteRule(rule.id, rule.name)}
+                        className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="ลบกฎ"
+                      >
                         <Trash2 size={20} />
                       </button>
                     </div>
                   </div>
                 ))}
+                
+                {rules.length === 0 && (
+                  <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-200 text-slate-400">
+                    <p>ยังไม่มีกฎอัตโนมัติ กดปุ่ม "เพิ่มกฎใหม่" เพื่อเริ่มต้น</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -959,7 +1239,28 @@ const SmartFarmPro = () => {
                </div>
                
                <div className="p-6 space-y-8">
-                 {/* Connection Section */}
+                 <div>
+                   <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                     <Edit3 size={18} /> ข้อมูลทั่วไป (General)
+                   </h4>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">ชื่อแปลง/โรงเรือน</label>
+                        <input type="text" defaultValue="โรงเรือนที่ 1: เมล่อนญี่ปุ่น" className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none" />
+                     </div>
+                     <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">ตั้งเวลาให้น้ำ (Daily Schedule)</label>
+                        <div className="flex items-center gap-2">
+                          <Clock size={18} className="text-slate-400"/>
+                          <input type="time" defaultValue="08:00" className="px-4 py-2 rounded-lg border border-slate-200 focus:border-emerald-500 focus:outline-none" />
+                          <span className="text-sm text-slate-500">ทุกวัน</span>
+                        </div>
+                     </div>
+                   </div>
+                 </div>
+
+                 <hr className="border-slate-100"/>
+
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Wifi size={18} /> การเชื่อมต่อ (Connection)
@@ -976,7 +1277,6 @@ const SmartFarmPro = () => {
                    </div>
                  </div>
 
-                 {/* Notification Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Bell size={18} /> การแจ้งเตือน (Notification)
@@ -990,7 +1290,6 @@ const SmartFarmPro = () => {
                    </div>
                  </div>
 
-                 {/* Threshold Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Activity size={18} /> ค่าวิกฤต (Thresholds)
