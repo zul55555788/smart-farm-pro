@@ -47,8 +47,8 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-// ใช้ API Key เดิมที่คุณให้มา (ถูกต้องแล้วครับ)
-const apiKey = "AIzaSyD163PBnyvYxlfinaCI-c-pv77mfwTI0K4"; 
+// ใช้ API Key ตัวล่าสุดที่คุณให้มาครับ (AIzaSyAYospo...)
+const apiKey = "AIzaSyDM6GtvfID3S11QOO8HW4OA7TmgnWkigrA"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -269,7 +269,7 @@ const SmartFarmPro = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Gemini API Function (Updated: Auto-retry logic) ---
+  // --- Gemini API Function (Robust Auto-Retry) ---
   const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null, imageMimeType = null) => {
     setIsAiThinking(true);
     
@@ -307,11 +307,12 @@ const SmartFarmPro = () => {
     }
 
     // List of models to try in order (Auto-Fallback)
+    // ระบบจะลองไล่รายชื่อนี้จนกว่าจะเจอตัวที่ใช้ได้
     const modelsToTry = [
-      "gemini-1.5-flash",       // Standard alias
-      "gemini-1.5-flash-001",   // Specific version
-      "gemini-1.5-pro",         // Backup powerful model
-      "gemini-1.5-pro-001"      // Specific version backup
+      "gemini-1.5-flash",       // มาตรฐานใหม่
+      "gemini-1.5-flash-latest",// บางทีต้องมี suffix
+      "gemini-pro",             // รุ่นเก่าที่เสถียรมาก (Fallback)
+      "gemini-1.0-pro"          // รุ่นระบุเวอร์ชัน
     ];
 
     let success = false;
@@ -321,7 +322,7 @@ const SmartFarmPro = () => {
     // Loop to try models until one works
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Trying model: ${modelName}`);
+        console.log(`Attempting with model: ${modelName}`);
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           {
@@ -358,7 +359,7 @@ const SmartFarmPro = () => {
         setAiChatHistory(prev => [...prev, responseMsg]);
       }
     } else {
-      setAiChatHistory(prev => [...prev, { role: 'model', text: `ขออภัยครับ ระบบ AI ขัดข้อง (ลองแล้วทุก Model): ${finalError}` }]);
+      setAiChatHistory(prev => [...prev, { role: 'model', text: `ขออภัยครับ ระบบ AI ขัดข้อง (API Key อาจผิด หรือโควต้าเต็ม): ${finalError}` }]);
     }
     
     setIsAiThinking(false);
@@ -764,163 +765,6 @@ const SmartFarmPro = () => {
                    </button>
                  </div>
                </div>
-            </div>
-          )}
-
-          {/* VIEW: SENSORS (Data Table) */}
-          {activeTab === 'sensors' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <h3 className="font-bold text-lg text-slate-800">ข้อมูลเซ็นเซอร์ย้อนหลัง (Data Log)</h3>
-                <div className="flex gap-2">
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium">
-                    <Download size={16} /> Export CSV
-                  </button>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium">
-                    <Filter size={16} /> Filter
-                  </button>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                      <th className="p-4 font-semibold">Timestamp</th>
-                      <th className="p-4 font-semibold text-right">Temp (°C)</th>
-                      <th className="p-4 font-semibold text-right">Hum (%)</th>
-                      <th className="p-4 font-semibold text-right">pH</th>
-                      <th className="p-4 font-semibold text-right">EC (mS)</th>
-                      <th className="p-4 font-semibold text-right">N (mg)</th>
-                      <th className="p-4 font-semibold text-right">P (mg)</th>
-                      <th className="p-4 font-semibold text-right">K (mg)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                    {sensorHistoryData.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 font-medium font-mono text-slate-500">{row.timestamp}</td>
-                        <td className="p-4 text-right">{row.temp}</td>
-                        <td className="p-4 text-right">{row.humidity}</td>
-                        <td className="p-4 text-right">{row.ph}</td>
-                        <td className="p-4 text-right">{row.ec}</td>
-                        <td className="p-4 text-right text-blue-600">{row.n}</td>
-                        <td className="p-4 text-right text-orange-600">{row.p}</td>
-                        <td className="p-4 text-right text-red-600">{row.k}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* VIEW: CONTROL */}
-          {activeTab === 'control' && (
-            <div>
-              <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
-                <AlertTriangle className="text-blue-500 mt-1" size={20} />
-                <div>
-                  <h4 className="font-bold text-blue-700">Manual Control Mode</h4>
-                  <p className="text-sm text-blue-600">การกดปุ่มสั่งงานที่นี่จะเป็นการ Override ระบบอัตโนมัติชั่วคราว คำสั่งจะถูกส่งไปยัง ESP32 ผ่าน Modbus</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {devices.map(device => (
-                  <div key={device.id} className={`bg-white rounded-2xl p-6 shadow-sm border-2 transition-all cursor-pointer group ${device.status ? 'border-emerald-500 ring-4 ring-emerald-50' : 'border-slate-100 hover:border-slate-300'}`}>
-                    <div className="flex justify-between items-start mb-6">
-                      <div className={`p-4 rounded-xl transition-colors ${device.status ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                        {device.type === 'pump' && <Droplets size={32} />}
-                        {device.type === 'fan' && <Wind size={32} />}
-                        {device.type === 'valve' && <Settings size={32} />}
-                        {device.type === 'light' && <Zap size={32} />}
-                      </div>
-                      <div className={`w-3 h-3 rounded-full ${device.status ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-800 mb-1">{device.name}</h3>
-                    <p className="text-sm text-slate-400 mb-6">Last Active: {device.lastActive}</p>
-                    
-                    <button 
-                      onClick={() => toggleDevice(device.id)}
-                      className={`w-full py-3 rounded-xl font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2
-                        ${device.status 
-                          ? 'bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-600' 
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
-                    >
-                      {device.status ? 'กำลังทำงาน (ON)' : 'ปิดการทำงาน (OFF)'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* VIEW: HISTORY (Graphs) */}
-          {activeTab === 'history' && (
-            <div className="space-y-6">
-              <div className="flex gap-2 mb-4">
-                 <button className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium shadow-sm hover:bg-slate-50">วันนี้ (24h)</button>
-                 <button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">7 วัน</button>
-                 <button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">30 วัน</button>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-slate-800 mb-6">อุณหภูมิและความชื้นสัมพันธ์ (Temperature & Humidity)</h3>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={mockGraphData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorHum" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                      <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                      <Area type="monotone" dataKey="temp" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#colorTemp)" name="Temperature" />
-                      <Area type="monotone" dataKey="humidity" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorHum)" name="Humidity" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6">ค่าความเป็นกรดด่าง (pH Level)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={mockGraphData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" hide />
-                        <YAxis domain={[0, 14]} axisLine={false} tickLine={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="ph" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-                        {/* Reference Line for optimal pH */}
-                        <Line type="monotone" dataKey={() => 7} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1} dot={false} name="Neutral" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6">ค่าความชื้นในดิน (Soil Moisture)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={mockGraphData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" hide />
-                        <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
-                        <Tooltip />
-                        <Bar dataKey="soilMoisture" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
