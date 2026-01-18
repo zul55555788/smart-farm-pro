@@ -48,7 +48,7 @@ import {
 
 // --- Gemini API Configuration ---
 // ใช้ Gemini 1.5 Flash ซึ่งรองรับทั้งข้อความและรูปภาพ
-const apiKey = "AIzaSyBeVZyxQa8-JsMSnf7HKxiC1ayNY41Yf3o"; 
+const apiKey = "AIzaSyDM6GtvfID3S11QOO8HW4OA7TmgnWkigrA"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
