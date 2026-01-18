@@ -47,8 +47,8 @@ import {
 } from 'recharts';
 
 // --- Gemini API Configuration ---
-// ใช้ Gemini 1.5 Flash ซึ่งรองรับทั้งข้อความและรูปภาพ
-const apiKey = "AIzaSyB1iQZTwYjkc4NFlOrFa6h3nnO-UU1r8aU"; 
+// ใช้ API Key ตัวล่าสุดที่คุณให้มาครับ (AIzaSyAYospo...)
+const apiKey = "AIzaSyD163PBnyvYxlfinaCI-c-pv77mfwTI0K4"; 
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -207,9 +207,8 @@ const SmartFarmPro = () => {
   const [isAiThinking, setIsAiThinking] = useState(false);
   
   // Image Upload State
-  const [selectedImage, setSelectedImage] = useState(null); // Stores the File object or data URL for preview
+  const [selectedImage, setSelectedImage] = useState(null); 
   const fileInputRef = useRef(null);
-  
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -257,7 +256,6 @@ const SmartFarmPro = () => {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Create a local URL for preview
       const previewUrl = URL.createObjectURL(file);
       setSelectedImage({ file, previewUrl });
     }
@@ -271,11 +269,11 @@ const SmartFarmPro = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Gemini API Function ---
-  const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null) => {
+  // --- Gemini API Function (Robust Auto-Retry) ---
+  const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null, imageMimeType = null) => {
     setIsAiThinking(true);
     
-    // Construct system context with current sensor data
+    // Farm Context
     const farmContext = `
       Current Farm Sensor Data:
       - Temperature: ${sensorData.temp}°C
@@ -285,92 +283,111 @@ const SmartFarmPro = () => {
       - EC: ${sensorData.ec} mS/cm
       - NPK: N=${sensorData.n}, P=${sensorData.p}, K=${sensorData.k} mg/kg
       
-      Role: You are an expert agricultural AI assistant for a Smart Farm system.
-      Instruction: Answer in Thai language. Be helpful, concise, and scientific.
-      ${imageBase64 ? 'Note: The user has attached an image. Please analyze it carefully in the context of agriculture.' : ''}
+      Role: You are an expert agricultural AI assistant.
+      Instruction: Answer in Thai language. Concise and scientific.
+      ${imageBase64 ? 'Note: User attached an image. Analyze it.' : ''}
     `;
 
     const fullPrompt = isAnalysis 
-      ? `Based on the sensor data provided, please analyze the current farm health status and suggest immediate actions if needed. Keep it to 3 bullet points.`
+      ? `Based on the sensor data provided, analyze farm health. 3 bullet points.`
       : prompt;
 
-    // Construct Payload
+    // Payload
     const parts = [
-      { text: farmContext + "\n\nUser Question: " + (fullPrompt || "วิเคราะห์รูปภาพนี้ให้หน่อย") }
+      { text: farmContext + "\n\nUser: " + (fullPrompt || "Analyze image") }
     ];
 
     if (imageBase64) {
       parts.push({
         inline_data: {
-          mime_type: "image/jpeg", // Assume jpeg/png based on upload, simple handling
+          mime_type: imageMimeType || "image/jpeg",
           data: imageBase64
         }
       });
     }
 
-    try {
-      // Use gemini-1.5-flash for multimodal support
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{ parts: parts }]
-          })
-        }
-      );
+    // List of models to try in order (Auto-Fallback)
+    // ระบบจะลองไล่รายชื่อนี้จนกว่าจะเจอตัวที่ใช้ได้
+    const modelsToTry = [
+      "gemini-1.5-flash",       // มาตรฐานใหม่
+      "gemini-1.5-flash-latest",// บางทีต้องมี suffix
+      "gemini-pro",             // รุ่นเก่าที่เสถียรมาก (Fallback)
+      "gemini-1.0-pro"          // รุ่นระบุเวอร์ชัน
+    ];
 
-      const data = await response.json();
-      
-      if (data.candidates && data.candidates[0].content) {
-        const aiResponse = data.candidates[0].content.parts[0].text;
-        
-        if (isAnalysis) {
-          setAiChatHistory(prev => [
-            ...prev, 
-            { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' },
-            { role: 'model', text: aiResponse }
-          ]);
-        } else {
-          setAiChatHistory(prev => [...prev, { role: 'model', text: aiResponse }]);
+    let success = false;
+    let aiResponse = "";
+    let finalError = "";
+
+    // Loop to try models until one works
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting with model: ${modelName}`);
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: parts }] })
+          }
+        );
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `HTTP Error ${response.status}`);
         }
-      } else {
-        throw new Error("No response from AI");
+
+        const data = await response.json();
+        if (data.candidates && data.candidates[0].content) {
+          aiResponse = data.candidates[0].content.parts[0].text;
+          success = true;
+          break; // Success! Exit loop
+        }
+      } catch (error) {
+        console.warn(`Model ${modelName} failed:`, error.message);
+        finalError = error.message;
+        // Continue to next model in loop
       }
-    } catch (error) {
-      console.error("AI Error:", error);
-      setAiChatHistory(prev => [...prev, { role: 'model', text: 'ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' }]);
-    } finally {
-      setIsAiThinking(false);
     }
+
+    // Handle Result
+    if (success) {
+      const responseMsg = { role: 'model', text: aiResponse };
+      if (isAnalysis) {
+        setAiChatHistory(prev => [...prev, { role: 'user', text: '⚡ วิเคราะห์สุขภาพฟาร์มอัตโนมัติ' }, responseMsg]);
+      } else {
+        setAiChatHistory(prev => [...prev, responseMsg]);
+      }
+    } else {
+      setAiChatHistory(prev => [...prev, { role: 'model', text: `ขออภัยครับ ระบบ AI ขัดข้อง (API Key อาจผิด หรือโควต้าเต็ม): ${finalError}` }]);
+    }
+    
+    setIsAiThinking(false);
   };
 
   const handleSendMessage = async () => {
     if (!aiInput.trim() && !selectedImage) return;
     
     let currentImageBase64 = null;
+    let currentMimeType = null;
     let chatMessage = { role: 'user', text: aiInput };
 
-    // Handle Image if exists
     if (selectedImage) {
       const base64Full = await convertToBase64(selectedImage.file);
-      currentImageBase64 = base64Full.split(',')[1]; // Remove 'data:image/...' prefix
-      chatMessage.image = base64Full; // For displaying in chat UI
+      currentImageBase64 = base64Full.split(',')[1];
+      currentMimeType = selectedImage.file.type;
+      
+      chatMessage.image = base64Full;
       if (!aiInput.trim()) chatMessage.text = "ส่งรูปภาพ...";
     }
 
-    // Add user message immediately
     setAiChatHistory(prev => [...prev, chatMessage]);
     
     const currentInput = aiInput;
     setAiInput('');
     clearSelectedImage();
     
-    // Call AI
-    callGeminiAI(currentInput, false, currentImageBase64);
+    callGeminiAI(currentInput, false, currentImageBase64, currentMimeType);
   };
 
   const handleQuickAnalysis = () => {
@@ -748,205 +765,6 @@ const SmartFarmPro = () => {
                    </button>
                  </div>
                </div>
-            </div>
-          )}
-
-          {/* VIEW: SENSORS (Data Table) */}
-          {activeTab === 'sensors' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <h3 className="font-bold text-lg text-slate-800">ข้อมูลเซ็นเซอร์ย้อนหลัง (Data Log)</h3>
-                <div className="flex gap-2">
-                  <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors text-sm font-medium">
-                    <Download size={16} /> Export CSV
-                  </button>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium">
-                    <Filter size={16} /> Filter
-                  </button>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                      <th className="p-4 font-semibold">Timestamp</th>
-                      <th className="p-4 font-semibold text-right">Temp (°C)</th>
-                      <th className="p-4 font-semibold text-right">Hum (%)</th>
-                      <th className="p-4 font-semibold text-right">pH</th>
-                      <th className="p-4 font-semibold text-right">EC (mS)</th>
-                      <th className="p-4 font-semibold text-right">N (mg)</th>
-                      <th className="p-4 font-semibold text-right">P (mg)</th>
-                      <th className="p-4 font-semibold text-right">K (mg)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                    {sensorHistoryData.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 font-medium font-mono text-slate-500">{row.timestamp}</td>
-                        <td className="p-4 text-right">{row.temp}</td>
-                        <td className="p-4 text-right">{row.humidity}</td>
-                        <td className="p-4 text-right">{row.ph}</td>
-                        <td className="p-4 text-right">{row.ec}</td>
-                        <td className="p-4 text-right text-blue-600">{row.n}</td>
-                        <td className="p-4 text-right text-orange-600">{row.p}</td>
-                        <td className="p-4 text-right text-red-600">{row.k}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* VIEW: CONTROL */}
-          {activeTab === 'control' && (
-            <div>
-              <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
-                <AlertTriangle className="text-blue-500 mt-1" size={20} />
-                <div>
-                  <h4 className="font-bold text-blue-700">Manual Control Mode</h4>
-                  <p className="text-sm text-blue-600">การกดปุ่มสั่งงานที่นี่จะเป็นการ Override ระบบอัตโนมัติชั่วคราว คำสั่งจะถูกส่งไปยัง ESP32 ผ่าน Modbus</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {devices.map(device => (
-                  <div key={device.id} className={`bg-white rounded-2xl p-6 shadow-sm border-2 transition-all cursor-pointer group ${device.status ? 'border-emerald-500 ring-4 ring-emerald-50' : 'border-slate-100 hover:border-slate-300'}`}>
-                    <div className="flex justify-between items-start mb-6">
-                      <div className={`p-4 rounded-xl transition-colors ${device.status ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                        {device.type === 'pump' && <Droplets size={32} />}
-                        {device.type === 'fan' && <Wind size={32} />}
-                        {device.type === 'valve' && <Settings size={32} />}
-                        {device.type === 'light' && <Zap size={32} />}
-                      </div>
-                      <div className={`w-3 h-3 rounded-full ${device.status ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-800 mb-1">{device.name}</h3>
-                    <p className="text-sm text-slate-400 mb-6">Last Active: {device.lastActive}</p>
-                    
-                    <button 
-                      onClick={() => toggleDevice(device.id)}
-                      className={`w-full py-3 rounded-xl font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2
-                        ${device.status 
-                          ? 'bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-600' 
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
-                    >
-                      {device.status ? 'กำลังทำงาน (ON)' : 'ปิดการทำงาน (OFF)'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* VIEW: HISTORY (Graphs) */}
-          {activeTab === 'history' && (
-            <div className="space-y-6">
-              <div className="flex gap-2 mb-4">
-                 <button className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium shadow-sm hover:bg-slate-50">วันนี้ (24h)</button>
-                 <button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">7 วัน</button>
-                 <button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">30 วัน</button>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-slate-800 mb-6">อุณหภูมิและความชื้นสัมพันธ์ (Temperature & Humidity)</h3>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={mockGraphData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorHum" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                      <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                      <Area type="monotone" dataKey="temp" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#colorTemp)" name="Temperature" />
-                      <Area type="monotone" dataKey="humidity" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorHum)" name="Humidity" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6">ค่าความเป็นกรดด่าง (pH Level)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={mockGraphData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" hide />
-                        <YAxis domain={[0, 14]} axisLine={false} tickLine={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="ph" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-                        {/* Reference Line for optimal pH */}
-                        <Line type="monotone" dataKey={() => 7} stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={1} dot={false} name="Neutral" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-slate-800 mb-6">ค่าความชื้นในดิน (Soil Moisture)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={mockGraphData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" hide />
-                        <YAxis domain={[0, 100]} axisLine={false} tickLine={false} />
-                        <Tooltip />
-                        <Bar dataKey="soilMoisture" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* VIEW: AUTOMATION */}
-          {activeTab === 'automation' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                 <h3 className="text-lg font-bold text-slate-800">กฎการทำงานอัตโนมัติ (Automation Rules)</h3>
-                 <button className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium">
-                    <Plus size={16} /> เพิ่มกฎใหม่ (Add Rule)
-                 </button>
-              </div>
-
-              <div className="grid gap-4">
-                {rules.map(rule => (
-                  <div key={rule.id} className={`bg-white p-6 rounded-2xl shadow-sm border-l-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${rule.active ? 'border-l-emerald-500' : 'border-l-slate-300'}`}>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h4 className="font-bold text-lg text-slate-800">{rule.name}</h4>
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${rule.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {rule.active ? 'ACTIVE' : 'INACTIVE'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg inline-flex">
-                        <span className="font-mono font-medium text-blue-600">IF {rule.condition}</span>
-                        <span className="text-slate-400">→</span>
-                        <span className="font-mono font-medium text-emerald-600">THEN {rule.action}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={rule.active} onChange={() => toggleRule(rule.id)} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                      </label>
-                      <button className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
-                        <Trash2 size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 
