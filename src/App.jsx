@@ -34,7 +34,9 @@ import {
   Clock,
   Edit3,
   Calendar,
-  ChevronRight
+  ChevronRight,
+  FlaskConical,
+  Timer
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -190,11 +192,13 @@ const SmartFarmPro = () => {
     k: 168
   });
 
+  // Updated Devices List (เหลือปั๊มน้ำหลักตัวเดียว)
   const [devices, setDevices] = useState([
-    { id: 'd1', name: 'ปั๊มน้ำหลัก', type: 'pump', status: false, lastActive: '10:30 AM' },
-    { id: 'd2', name: 'พัดลมระบายอากาศ', type: 'fan', status: true, lastActive: 'Running' },
-    { id: 'd3', name: 'วาล์วพ่นหมอก', type: 'valve', status: false, lastActive: '09:00 AM' },
-    { id: 'd4', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: 'Yesterday' },
+    { id: 'pump1', name: 'ปั๊มน้ำหลัก', type: 'pump', status: false, lastActive: '10:30 AM' },
+    { id: 'vitA', name: 'ปั๊มวิตามิน A', type: 'chemical', status: false, lastActive: 'Yesterday' },
+    { id: 'vitB', name: 'ปั๊มวิตามิน B', type: 'chemical', status: false, lastActive: 'Yesterday' },
+    { id: 'fan', name: 'พัดลมระบายอากาศ', type: 'fan', status: true, lastActive: 'Running' },
+    { id: 'led', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: 'Yesterday' },
   ]);
 
   // Enhanced Rules State
@@ -205,7 +209,7 @@ const SmartFarmPro = () => {
       sensor: 'soilMoisture', 
       operator: '<', 
       value: 40, 
-      actionDevice: 'd1', 
+      actionDevice: 'pump1', 
       actionState: true, 
       active: true 
     },
@@ -215,7 +219,7 @@ const SmartFarmPro = () => {
       sensor: 'temp', 
       operator: '>', 
       value: 35, 
-      actionDevice: 'd2', 
+      actionDevice: 'fan', 
       actionState: true, 
       active: true 
     },
@@ -238,6 +242,11 @@ const SmartFarmPro = () => {
     { id: 3, time: '08:00 AM', message: 'System Startup: เชื่อมต่อ WiFi สำเร็จ', type: 'normal' },
   ]);
 
+  // Timer Modal State
+  const [showTimerModal, setShowTimerModal] = useState(false);
+  const [selectedDeviceForTimer, setSelectedDeviceForTimer] = useState(null);
+  const [timerDuration, setTimerDuration] = useState({ value: '', unit: 'minutes' }); // units: seconds, minutes, hours
+
   // Function to add a log
   const addSystemLog = (message, type = 'info') => {
     const newLog = {
@@ -256,7 +265,7 @@ const SmartFarmPro = () => {
     sensor: 'temp',
     operator: '>',
     value: '',
-    actionDevice: 'd1',
+    actionDevice: 'pump1',
     actionState: 'true'
   });
 
@@ -309,8 +318,6 @@ const SmartFarmPro = () => {
               setDevices(currentDevices => 
                 currentDevices.map(d => {
                   if (d.id === rule.actionDevice && d.status !== rule.actionState) {
-                    // Trigger action only once to avoid spamming logs
-                    // In a real app, this logic would be more complex
                     return { ...d, status: rule.actionState, lastActive: 'Auto Rule' };
                   }
                   return d;
@@ -326,29 +333,71 @@ const SmartFarmPro = () => {
     }
   }, [isLoggedIn, rules]);
 
-  const toggleDevice = (id) => {
-    setDevices(prev => prev.map(d => {
-      if (d.id === id) {
-        addSystemLog(`สั่งงานด้วยมือ: ${!d.status ? 'เปิด' : 'ปิด'} ${d.name}`, 'normal');
-        return { ...d, status: !d.status };
-      }
-      return d;
-    }));
+  // --- Device Control Logic with Timer (Updated) ---
+  const handleDeviceClick = (device) => {
+    if (device.status) {
+      // If currently ON, just turn OFF immediately
+      setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: false } : d));
+      addSystemLog(`ปิดการทำงาน ${device.name}`, 'normal');
+    } else {
+      // If currently OFF, open Timer Modal
+      setSelectedDeviceForTimer(device);
+      setTimerDuration({ value: '', unit: 'minutes' }); // Reset form
+      setShowTimerModal(true);
+    }
+  };
+
+  const confirmTimerStart = () => {
+    if (!selectedDeviceForTimer) return;
+    
+    // Logic to start device
+    const val = parseInt(timerDuration.value);
+    if (!val || val <= 0) return; // Basic validation
+
+    let unitLabel = 'นาที';
+    let durationMs = val * 60 * 1000;
+
+    if (timerDuration.unit === 'seconds') {
+      unitLabel = 'วินาที';
+      durationMs = val * 1000;
+    } else if (timerDuration.unit === 'hours') {
+      unitLabel = 'ชั่วโมง';
+      durationMs = val * 60 * 60 * 1000;
+    }
+    
+    const durationText = `${val} ${unitLabel}`;
+    
+    // 1. Turn ON the device
+    setDevices(prev => prev.map(d => d.id === selectedDeviceForTimer.id ? { ...d, status: true } : d));
+    addSystemLog(`เปิดการทำงาน ${selectedDeviceForTimer.name} เป็นเวลา ${durationText}`, 'success');
+    
+    // 2. Set timeout to Turn OFF (Auto-off)
+    setTimeout(() => {
+      setDevices(prev => prev.map(d => {
+        // Only turn off if it's still ON (user hasn't manually turned it off)
+        if (d.id === selectedDeviceForTimer.id && d.status === true) {
+           addSystemLog(`ครบเวลา ${durationText}: ปิด ${selectedDeviceForTimer.name} อัตโนมัติ`, 'warning');
+           return { ...d, status: false };
+        }
+        return d;
+      }));
+    }, durationMs);
+
+    setShowTimerModal(false);
+    setSelectedDeviceForTimer(null);
   };
 
   const toggleRule = (id) => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
   };
 
-  // --- DELETE RULE FUNCTION (With Logging) ---
   const deleteRule = (id, ruleName) => {
     if (window.confirm(`คุณต้องการลบกฎ "${ruleName}" ใช่หรือไม่?`)) {
       setRules(prev => prev.filter(r => r.id !== id));
-      addSystemLog(`ลบกฎอัตโนมัติ: ${ruleName}`, 'warning'); // บันทึกลง Dashboard
+      addSystemLog(`ลบกฎอัตโนมัติ: ${ruleName}`, 'warning');
     }
   };
 
-  // --- ADD RULE FUNCTION (With Logging) ---
   const handleAddRule = (e) => {
     e.preventDefault();
     const id = rules.length > 0 ? Math.max(...rules.map(r => r.id)) + 1 : 1;
@@ -363,14 +412,14 @@ const SmartFarmPro = () => {
       active: true
     };
     setRules([...rules, ruleToAdd]);
-    addSystemLog(`เพิ่มกฎใหม่: ${ruleToAdd.name}`, 'success'); // บันทึกลง Dashboard
+    addSystemLog(`เพิ่มกฎใหม่: ${ruleToAdd.name}`, 'success');
     setIsAddRuleModalOpen(false);
     setNewRule({
       name: '',
       sensor: 'temp',
       operator: '>',
       value: '',
-      actionDevice: 'd1',
+      actionDevice: 'pump1',
       actionState: 'true'
     });
   };
@@ -400,7 +449,7 @@ const SmartFarmPro = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Gemini API Function (Robust Auto-Retry Updated) ---
+  // --- Gemini API Function (Robust Auto-Retry) ---
   const callGeminiAI = async (prompt, isAnalysis = false, imageBase64 = null, imageMimeType = null) => {
     setIsAiThinking(true);
     
@@ -434,15 +483,11 @@ const SmartFarmPro = () => {
       });
     }
 
-    // UPDATED: List of models to try in order (More exhaustive)
     const modelsToTry = [
       "gemini-1.5-flash",
       "gemini-1.5-flash-latest",
-      "gemini-1.5-flash-001",
-      "gemini-1.5-flash-002",
-      "gemini-1.5-pro",
-      "gemini-1.5-pro-001",
-      "gemini-1.5-pro-002",
+      "gemini-1.5-pro",         
+      "gemini-pro"
     ];
 
     let success = false;
@@ -451,7 +496,6 @@ const SmartFarmPro = () => {
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Attempting with model: ${modelName}`);
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           {
@@ -470,12 +514,11 @@ const SmartFarmPro = () => {
         if (data.candidates && data.candidates[0].content) {
           aiResponse = data.candidates[0].content.parts[0].text;
           success = true;
-          break; // Success! Exit loop
+          break; 
         }
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error.message);
         finalError = error.message;
-        // Continue to next model in loop
       }
     }
 
@@ -600,6 +643,58 @@ const SmartFarmPro = () => {
   return (
     <div className="flex h-screen bg-[#F1F5F9] font-sans text-slate-800 overflow-hidden relative">
       
+      {/* TIMER MODAL */}
+      {showTimerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Timer size={32} className="text-emerald-600" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">ตั้งเวลาทำงาน</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                ต้องการเปิด <span className="font-bold text-emerald-600">{selectedDeviceForTimer?.name}</span> นานเท่าไหร่?
+              </p>
+              
+              <div className="flex gap-2 mb-6">
+                <input 
+                  type="number" 
+                  placeholder="0" 
+                  className="flex-1 px-4 py-2 border border-slate-200 rounded-xl text-center text-lg font-bold focus:border-emerald-500 focus:outline-none"
+                  value={timerDuration.value}
+                  onChange={(e) => setTimerDuration({...timerDuration, value: e.target.value})}
+                  autoFocus
+                />
+                <select 
+                  className="px-4 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:border-emerald-500 focus:outline-none"
+                  value={timerDuration.unit}
+                  onChange={(e) => setTimerDuration({...timerDuration, unit: e.target.value})}
+                >
+                  <option value="seconds">วินาที</option>
+                  <option value="minutes">นาที</option>
+                  <option value="hours">ชั่วโมง</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowTimerModal(false)}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  onClick={confirmTimerStart}
+                  className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-colors"
+                >
+                  เปิดทำงาน
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ADD RULE MODAL */}
       {isAddRuleModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -1078,14 +1173,14 @@ const SmartFarmPro = () => {
                   <p className="text-sm text-blue-600">การกดปุ่มสั่งงานที่นี่จะเป็นการ Override ระบบอัตโนมัติชั่วคราว คำสั่งจะถูกส่งไปยัง ESP32 ผ่าน Modbus</p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {devices.map(device => (
                   <div key={device.id} className={`bg-white rounded-2xl p-6 shadow-sm border-2 transition-all cursor-pointer group ${device.status ? 'border-emerald-500 ring-4 ring-emerald-50' : 'border-slate-100 hover:border-slate-300'}`}>
                     <div className="flex justify-between items-start mb-6">
                       <div className={`p-4 rounded-xl transition-colors ${device.status ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
                         {device.type === 'pump' && <Droplets size={32} />}
                         {device.type === 'fan' && <Wind size={32} />}
-                        {device.type === 'valve' && <Settings size={32} />}
+                        {device.type === 'chemical' && <FlaskConical size={32} />}
                         {device.type === 'light' && <Zap size={32} />}
                       </div>
                       <div className={`w-3 h-3 rounded-full ${device.status ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
@@ -1094,13 +1189,18 @@ const SmartFarmPro = () => {
                     <p className="text-sm text-slate-400 mb-6">Last Active: {device.lastActive}</p>
                     
                     <button 
-                      onClick={() => toggleDevice(device.id)}
+                      onClick={() => handleDeviceClick(device)}
                       className={`w-full py-3 rounded-xl font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2
                         ${device.status 
                           ? 'bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-600' 
                           : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
                     >
-                      {device.status ? 'กำลังทำงาน (ON)' : 'ปิดการทำงาน (OFF)'}
+                      {device.status ? 'ปิดการทำงาน (OFF)' : (
+                        <>
+                          <Timer size={18} />
+                          <span>ตั้งเวลาเปิด (Timer)</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 ))}
@@ -1251,6 +1351,7 @@ const SmartFarmPro = () => {
                </div>
                
                <div className="p-6 space-y-8">
+                 {/* ADDED: General Info Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Edit3 size={18} /> ข้อมูลทั่วไป (General)
@@ -1273,6 +1374,7 @@ const SmartFarmPro = () => {
 
                  <hr className="border-slate-100"/>
 
+                 {/* Connection Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Wifi size={18} /> การเชื่อมต่อ (Connection)
@@ -1289,6 +1391,7 @@ const SmartFarmPro = () => {
                    </div>
                  </div>
 
+                 {/* Notification Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Bell size={18} /> การแจ้งเตือน (Notification)
@@ -1302,6 +1405,7 @@ const SmartFarmPro = () => {
                    </div>
                  </div>
 
+                 {/* Threshold Section */}
                  <div>
                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                      <Activity size={18} /> ค่าวิกฤต (Thresholds)
