@@ -58,7 +58,7 @@ import {
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 // 👇 ก๊อกน้ำ API ของคุณ
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbx7f98eAAsp6WQcIeuXeIaicBFwQge773dD9DHu_danlxXrtrF9LYYLx_9D2Fv59EkblQ/exec";
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxYFgkNWbzZizJJXshL02oKCgbm3JEK3IftPChxzba5Jh8_6ZVrqC96LmSBiMa50gD4zw/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
