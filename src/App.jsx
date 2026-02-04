@@ -295,12 +295,17 @@ const SmartFarmPro = () => {
 
   useEffect(() => { if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [aiChatHistory]);
 
-  // --- Device Control Handlers (Same as previous) ---
   const handleDeviceClick = (device) => {
     if (device.status) {
+      // กรณีสั่งปิดทันที
       setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: false } : d));
-      addSystemLog(`สั่งปิด ${device.name} (Waiting for API)`, 'normal');
+      addSystemLog(`สั่งปิด ${device.name}`, 'normal');
+      
+      // 🔴 ส่งคำสั่งปิดไป Google Sheets
+      sendControlToAPI(device.id, false); 
+
     } else {
+      // กรณีจะเปิด (เรียก Modal ตั้งเวลา)
       setSelectedDeviceForTimer(device);
       setScheduleConfig({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
       setTimerMode('timer');
@@ -318,12 +323,21 @@ const SmartFarmPro = () => {
         let durationMs = val * 1000;
         if (scheduleConfig.durationUnit === 'minutes') durationMs *= 60;
         if (scheduleConfig.durationUnit === 'hours') durationMs *= 3600;
+
         setDevices(prev => prev.map(d => d.id === selectedDeviceForTimer.id ? { ...d, status: true } : d));
         addSystemLog(`สั่งเปิด ${selectedDeviceForTimer.name} เป็นเวลา ${val} ${unitLabel}`, 'success');
+        
+        // 🔴 ส่งคำสั่งเปิดไป Google Sheets พร้อมระยะเวลา
+        sendControlToAPI(selectedDeviceForTimer.id, true, 'manual', val); 
+
         setTimeout(() => {
             setDevices(prev => prev.map(d => {
                 if (d.id === selectedDeviceForTimer.id && d.status) {
                     addSystemLog(`ครบเวลา: ปิด ${d.name} อัตโนมัติ`, 'warning');
+                    
+                    // 🔴 ครบเวลาแล้ว ส่งคำสั่งปิดไป Google Sheets ด้วย
+                    sendControlToAPI(d.id, false); 
+                    
                     return { ...d, status: false };
                 } return d;
             }));
@@ -337,6 +351,32 @@ const SmartFarmPro = () => {
     }
     setShowTimerModal(false);
     setSelectedDeviceForTimer(null);
+  };
+
+  // --- ฟังก์ชันสำหรับส่งคำสั่งไป Google Sheets ---
+  const sendControlToAPI = async (deviceId, state, mode = 'manual', duration = 0) => {
+    try {
+      await fetch(SHEET_API_URL, {
+        method: 'POST',
+        mode: 'no-cors', // ใช้ no-cors เพื่อเลี่ยงปัญหา Browser Block
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'control_device',
+          device_id: deviceId,
+          state: state ? 'ON' : 'OFF',
+          mode: mode,
+          duration: duration
+        })
+      });
+
+      // รอ 1 วินาทีแล้วดึงข้อมูลใหม่ เพื่อให้ Log เด้งขึ้นมาทันที
+      setTimeout(() => {
+        fetchRealData(); 
+      }, 1000);
+
+    } catch (error) {
+      console.error("Error sending command:", error);
+    }
   };
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
