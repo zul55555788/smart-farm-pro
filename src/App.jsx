@@ -58,7 +58,8 @@ import {
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbysMuP9k5cXVYaFGWyPk2G2lp3iO8asDzqupHivWHu6WOsk4bMDeJeO6eAnFiXSO6KUXA/exec";
+// ⚠️ อย่าลืมใส่ URL ที่ได้จากการ Deploy ใหม่ตรงนี้นะครับ
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzP2BfOQsKkRuKlEz3Zmx6GVyvU43oX12d7yQGh1Fik0XeeodJ5Nh3v82UJJ0DtZ2JQRA/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -127,20 +128,15 @@ const SmartFarmPro = () => {
   const [currentUser, setCurrentUser] = useState('');
   const [lastUpdateTime, setLastUpdateTime] = useState('-');
 
-  // 1️⃣ STATE สำหรับข้อมูลจริง (อัปเกรดให้รองรับ DHT11 + 7-in-1)
+  // 1️⃣ STATE สำหรับข้อมูลจริง
   const [sensorData, setSensorData] = useState({
-    // DHT11 Data
-    airTemp: 0,
-    airHum: 0,
-    // 7-in-1 Modbus Data
-    soilTemp: 0,
-    soilMoisture: 0,
-    ph: 0,
-    ec: 0,
-    n: 0,
-    p: 0,
-    k: 0
+    airTemp: 0, airHum: 0,
+    soilTemp: 0, soilMoisture: 0, ph: 0, ec: 0,
+    n: 0, p: 0, k: 0
   });
+
+  // 🔴 เพิ่ม State สำหรับเก็บประวัติเซนเซอร์จริง
+  const [realSensorHistory, setRealSensorHistory] = useState([]);
 
   // Devices List
   const [devices, setDevices] = useState([
@@ -151,7 +147,7 @@ const SmartFarmPro = () => {
     { id: 'led', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: '-', schedule: null },
   ]);
 
-  // Graph Data
+  // Graph Data (Mock สำหรับกราฟหน้าแรก)
   const [mockGraphData] = useState(Array.from({ length: 24 }, (_, i) => ({
     time: `${String(i).padStart(2, '0')}:00`,
     temp: 28 + Math.random() * 5,
@@ -160,16 +156,6 @@ const SmartFarmPro = () => {
     ec: 1.2 + Math.random() * 0.5,
     ph: 6.5 + Math.random() * 0.5 - 0.25
   })));
-
-  const sensorHistoryData = Array.from({ length: 5 }, (_, i) => ({
-    id: 1000 + i,
-    timestamp: `Mock Data ${i+1}`,
-    temp: (30 + Math.random()).toFixed(1),
-    humidity: (65 + Math.random() * 5).toFixed(0),
-    ph: (6.5 + Math.random() * 0.4).toFixed(1),
-    ec: (1.2 + Math.random() * 0.3).toFixed(2),
-    n: 0, p: 0, k: 0
-  }));
 
   // --- Automation & Other States ---
   const [rules, setRules] = useState([
@@ -193,21 +179,19 @@ const SmartFarmPro = () => {
   const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
   const [newRule, setNewRule] = useState({ name: '', sensor: 'airTemp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' });
 
-  // --- 🟢 REAL DATA FETCHING FUNCTIONS ---
   // --- 🟢 REAL DATA FETCHING FUNCTIONS (UPDATED) ---
   const fetchRealData = async () => {
     try {
-      // 1. Fetch Sensor Data (อ่านค่าเซนเซอร์)
+      // 1. Fetch Sensor Data (อ่านค่าเซนเซอร์ปัจจุบัน)
       const sensorRes = await fetch(`${SHEET_API_URL}?action=getSensor`);
       const sensorJson = await sensorRes.json();
       
       if (sensorJson) {
         setSensorData(prev => ({
           ...prev,
-          // Mapping ข้อมูลจาก Sheet ให้ตรงกับตัวแปรใหม่
-          airTemp: parseFloat(sensorJson.air_temp) || 0, // จาก DHT11
-          airHum: parseFloat(sensorJson.air_humidity) || 0, // จาก DHT11
-          soilTemp: parseFloat(sensorJson.soil_temp) || prev.soilTemp || 0, // จาก 7-in-1 (ถ้ามี)
+          airTemp: parseFloat(sensorJson.air_temp) || 0,
+          airHum: parseFloat(sensorJson.air_humidity) || 0,
+          soilTemp: parseFloat(sensorJson.soil_temp) || prev.soilTemp || 0,
           soilMoisture: parseFloat(sensorJson.soil_moisture) || 0,
           ph: parseFloat(sensorJson.ph) || 0,
           ec: parseFloat(sensorJson.ec) || prev.ec || 0,
@@ -218,7 +202,7 @@ const SmartFarmPro = () => {
         setLastUpdateTime(new Date().toLocaleTimeString('th-TH'));
       }
 
-      // 2. Fetch Device Status (อ่านสถานะอุปกรณ์)
+      // 2. Fetch Device Status
       const deviceRes = await fetch(`${SHEET_API_URL}?action=getDevices`);
       const deviceJson = await deviceRes.json();
 
@@ -237,34 +221,33 @@ const SmartFarmPro = () => {
         );
       }
 
-      // 🔴 3. Fetch System Logs (เพิ่มส่วนนี้: อ่านประวัติการทำงาน)
+      // 3. Fetch System Logs
       const logsRes = await fetch(`${SHEET_API_URL}?action=getLogs`);
       const logsJson = await logsRes.json();
-
       if (Array.isArray(logsJson)) {
-        setSystemLogs(logsJson); // อัปเดตข้อมูลลงในกล่อง System Logs
+        setSystemLogs(logsJson);
+      }
+
+      // 🔴 4. Fetch Sensor History (ดึงข้อมูลย้อนหลังสำหรับตาราง)
+      const historyRes = await fetch(`${SHEET_API_URL}?action=getSensorHistory`);
+      const historyJson = await historyRes.json();
+      if (Array.isArray(historyJson)) {
+          setRealSensorHistory(historyJson);
       }
 
     } catch (err) {
       // console.error("Error fetching data:", err); 
     }
   };
+
   // --- Main Effect: Fetch Loop ---
   useEffect(() => {
     if (isLoggedIn) {
       fetchRealData();
       const interval = setInterval(() => {
-        fetchRealData(); // ดึงค่าจริงจาก Sheet
-        
-        // Simulation Logic (เฉพาะตอนยังไม่ได้ค่าจริง หรือเพื่อทดสอบระบบ Automation)
-        setSensorData(prev => ({
-           ...prev,
-           // จำลองการขยับของตัวเลขเล็กน้อยเพื่อให้ดู Realtime ถ้าค่าจริงนิ่งเกินไป
-           // airTemp: +(prev.airTemp + (Math.random() * 0.1 - 0.05)).toFixed(1),
-        }));
-
-        // Check Automation Rules
-        // (Logic เดิม ยังใช้งานได้ โดยเปลี่ยนไปเช็คค่าจาก sensorData)
+        fetchRealData();
+        // Simulation Logic (เฉพาะตอนยังไม่ได้ค่าจริง)
+        setSensorData(prev => ({ ...prev }));
       }, 3000);
 
       return () => clearInterval(interval);
@@ -297,15 +280,10 @@ const SmartFarmPro = () => {
 
   const handleDeviceClick = (device) => {
     if (device.status) {
-      // กรณีสั่งปิดทันที
       setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: false } : d));
       addSystemLog(`สั่งปิด ${device.name}`, 'normal');
-      
-      // 🔴 ส่งคำสั่งปิดไป Google Sheets
       sendControlToAPI(device.id, false); 
-
     } else {
-      // กรณีจะเปิด (เรียก Modal ตั้งเวลา)
       setSelectedDeviceForTimer(device);
       setScheduleConfig({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
       setTimerMode('timer');
@@ -326,18 +304,13 @@ const SmartFarmPro = () => {
 
         setDevices(prev => prev.map(d => d.id === selectedDeviceForTimer.id ? { ...d, status: true } : d));
         addSystemLog(`สั่งเปิด ${selectedDeviceForTimer.name} เป็นเวลา ${val} ${unitLabel}`, 'success');
-        
-        // 🔴 ส่งคำสั่งเปิดไป Google Sheets พร้อมระยะเวลา
         sendControlToAPI(selectedDeviceForTimer.id, true, 'manual', val); 
 
         setTimeout(() => {
             setDevices(prev => prev.map(d => {
                 if (d.id === selectedDeviceForTimer.id && d.status) {
                     addSystemLog(`ครบเวลา: ปิด ${d.name} อัตโนมัติ`, 'warning');
-                    
-                    // 🔴 ครบเวลาแล้ว ส่งคำสั่งปิดไป Google Sheets ด้วย
                     sendControlToAPI(d.id, false); 
-                    
                     return { ...d, status: false };
                 } return d;
             }));
@@ -358,7 +331,7 @@ const SmartFarmPro = () => {
     try {
       await fetch(SHEET_API_URL, {
         method: 'POST',
-        mode: 'no-cors', // ใช้ no-cors เพื่อเลี่ยงปัญหา Browser Block
+        mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'control_device',
@@ -368,16 +341,12 @@ const SmartFarmPro = () => {
           duration: duration
         })
       });
-
-      // รอ 1 วินาทีแล้วดึงข้อมูลใหม่ เพื่อให้ Log เด้งขึ้นมาทันที
-      setTimeout(() => {
-        fetchRealData(); 
-      }, 1000);
-
+      setTimeout(() => { fetchRealData(); }, 1000);
     } catch (error) {
       console.error("Error sending command:", error);
     }
   };
+
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
   const toggleRule = (id) => setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
@@ -598,7 +567,7 @@ const SmartFarmPro = () => {
                 <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 xl:col-span-2">
                   <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Cpu size={20} className="text-purple-500"/> ประวัติการทำงานระบบ (System Logs)</h3>
                   <div className="space-y-4 relative pl-4 border-l-2 border-slate-100 max-h-[250px] overflow-y-auto">
-                     {systemLogs.length === 0 ? (<p className="text-sm text-slate-400">ยังไม่มีการแจ้งเตือนใหม่</p>) : (systemLogs.map(log => (<div key={log.id} className="relative mb-4 last:mb-0"><span className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${log.type === 'success' ? 'bg-emerald-500' : log.type === 'warning' ? 'bg-orange-500' : log.type === 'info' ? 'bg-blue-500' : 'bg-slate-400'}`}></span><p className="text-xs text-slate-400 mb-1">{log.time}</p><p className="text-sm text-slate-700">{log.message}</p></div>)))}
+                      {systemLogs.length === 0 ? (<p className="text-sm text-slate-400">ยังไม่มีการแจ้งเตือนใหม่</p>) : (systemLogs.map(log => (<div key={log.id} className="relative mb-4 last:mb-0"><span className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${log.type === 'success' ? 'bg-emerald-500' : log.type === 'warning' ? 'bg-orange-500' : log.type === 'info' ? 'bg-blue-500' : 'bg-slate-400'}`}></span><p className="text-xs text-slate-400 mb-1">{log.time}</p><p className="text-sm text-slate-700">{log.message}</p></div>)))}
                   </div>
                 </div>
               </div>
@@ -634,7 +603,51 @@ const SmartFarmPro = () => {
                 <h3 className="font-bold text-lg text-slate-800">ข้อมูลเซ็นเซอร์ย้อนหลัง (Data Log)</h3>
                 <div className="flex gap-2"><div className="flex items-center border border-slate-200 rounded-lg px-2 bg-slate-50"><Calendar size={16} className="text-slate-400 mr-2"/><input type="date" className="bg-transparent border-none text-sm text-slate-600 focus:outline-none py-1.5"/></div></div>
               </div>
-              <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead><tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider"><th className="p-4 font-semibold">Timestamp</th><th className="p-4 font-semibold text-right">Air Temp</th><th className="p-4 font-semibold text-right">Air Hum</th><th className="p-4 font-semibold text-right">Soil Temp</th><th className="p-4 font-semibold text-right">Soil Hum</th><th className="p-4 font-semibold text-right">pH</th><th className="p-4 font-semibold text-right">EC</th><th className="p-4 font-semibold text-right">N</th><th className="p-4 font-semibold text-right">P</th><th className="p-4 font-semibold text-right">K</th></tr></thead><tbody className="divide-y divide-slate-100 text-sm text-slate-700">{sensorHistoryData.map((row) => (<tr key={row.id} className="hover:bg-slate-50 transition-colors"><td className="p-4 font-medium font-mono text-slate-500">{row.timestamp}</td><td className="p-4 text-right">{row.temp}</td><td className="p-4 text-right">{row.humidity}</td><td className="p-4 text-right">-</td><td className="p-4 text-right">-</td><td className="p-4 text-right">{row.ph}</td><td className="p-4 text-right">{row.ec}</td><td className="p-4 text-right text-blue-600">{row.n}</td><td className="p-4 text-right text-orange-600">{row.p}</td><td className="p-4 text-right text-red-600">{row.k}</td></tr>))}</tbody></table></div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="p-4 font-semibold">Timestamp</th>
+                      <th className="p-4 font-semibold text-right">Air Temp</th>
+                      <th className="p-4 font-semibold text-right">Air Hum</th>
+                      <th className="p-4 font-semibold text-right">Soil Temp</th>
+                      <th className="p-4 font-semibold text-right">Soil Hum</th>
+                      <th className="p-4 font-semibold text-right">pH</th>
+                      <th className="p-4 font-semibold text-right">EC</th>
+                      <th className="p-4 font-semibold text-right">N</th>
+                      <th className="p-4 font-semibold text-right">P</th>
+                      <th className="p-4 font-semibold text-right">K</th>
+                    </tr>
+                  </thead>
+                  
+                  {/* 🔴 ส่วนแสดงผลข้อมูลจริง */}
+                  <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                    {realSensorHistory.length > 0 ? (
+                      realSensorHistory.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4 font-medium font-mono text-slate-500">{row.timestamp}</td>
+                          <td className="p-4 text-right">{row.air_temp}</td>
+                          <td className="p-4 text-right">{row.air_humidity}</td>
+                          <td className="p-4 text-right">{row.soil_temp}</td>
+                          <td className="p-4 text-right">{row.soil_moisture}</td>
+                          <td className="p-4 text-right">{row.ph}</td>
+                          <td className="p-4 text-right">{row.ec}</td>
+                          <td className="p-4 text-right text-blue-600">{row.n}</td>
+                          <td className="p-4 text-right text-orange-600">{row.p}</td>
+                          <td className="p-4 text-right text-red-600">{row.k}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="10" className="p-8 text-center text-slate-400">
+                           {realSensorHistory.length === 0 ? "กำลังโหลดข้อมูล... หรือไม่มีข้อมูลย้อนหลัง" : "No Data Available"}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+
+                </table>
+              </div>
             </div>
           )}
 
@@ -651,8 +664,8 @@ const SmartFarmPro = () => {
                     <div className="flex justify-between items-start mb-6">
                       <div className={`p-4 rounded-xl transition-colors ${device.status ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>{device.type === 'pump' && <Droplets size={32} />}{device.type === 'fan' && <Wind size={32} />}{device.type === 'chemical' && <FlaskConical size={32} />}{device.type === 'light' && <Zap size={32} />}</div>
                       <div className="flex flex-col items-end gap-1">
-                         <div className={`w-3 h-3 rounded-full ${device.status ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                         {device.schedule && (<div className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100"><Clock size={10} /> {device.schedule}</div>)}
+                          <div className={`w-3 h-3 rounded-full ${device.status ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                          {device.schedule && (<div className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100"><Clock size={10} /> {device.schedule}</div>)}
                       </div>
                     </div>
                     <div className="flex justify-between items-end mb-6"><div><h3 className="text-lg font-bold text-slate-800 mb-1">{device.name}</h3><p className="text-sm text-slate-400">Last: {device.lastActive}</p></div>{device.schedule && (<button onClick={(e) => { e.stopPropagation(); cancelSchedule(device.id); }} className="text-xs text-red-400 hover:text-red-600 underline">ยกเลิกเวลา</button>)}</div>
