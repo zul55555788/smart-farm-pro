@@ -57,7 +57,7 @@ import {
 
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
-// 👇 ก๊อกน้ำ API ของคุณ
+
 const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxYFgkNWbzZizJJXshL02oKCgbm3JEK3IftPChxzba5Jh8_6ZVrqC96LmSBiMa50gD4zw/exec";
 
 // 1. Login Component
@@ -194,9 +194,10 @@ const SmartFarmPro = () => {
   const [newRule, setNewRule] = useState({ name: '', sensor: 'airTemp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' });
 
   // --- 🟢 REAL DATA FETCHING FUNCTIONS ---
+  // --- 🟢 REAL DATA FETCHING FUNCTIONS (UPDATED) ---
   const fetchRealData = async () => {
     try {
-      // 1. Fetch Sensor Data
+      // 1. Fetch Sensor Data (อ่านค่าเซนเซอร์)
       const sensorRes = await fetch(`${SHEET_API_URL}?action=getSensor`);
       const sensorJson = await sensorRes.json();
       
@@ -217,7 +218,7 @@ const SmartFarmPro = () => {
         setLastUpdateTime(new Date().toLocaleTimeString('th-TH'));
       }
 
-      // 2. Fetch Device Status
+      // 2. Fetch Device Status (อ่านสถานะอุปกรณ์)
       const deviceRes = await fetch(`${SHEET_API_URL}?action=getDevices`);
       const deviceJson = await deviceRes.json();
 
@@ -235,11 +236,19 @@ const SmartFarmPro = () => {
           })
         );
       }
+
+      // 🔴 3. Fetch System Logs (เพิ่มส่วนนี้: อ่านประวัติการทำงาน)
+      const logsRes = await fetch(`${SHEET_API_URL}?action=getLogs`);
+      const logsJson = await logsRes.json();
+
+      if (Array.isArray(logsJson)) {
+        setSystemLogs(logsJson); // อัปเดตข้อมูลลงในกล่อง System Logs
+      }
+
     } catch (err) {
       // console.error("Error fetching data:", err); 
     }
   };
-
   // --- Main Effect: Fetch Loop ---
   useEffect(() => {
     if (isLoggedIn) {
