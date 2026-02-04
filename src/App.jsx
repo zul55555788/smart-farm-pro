@@ -58,7 +58,7 @@ import {
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbxYFgkNWbzZizJJXshL02oKCgbm3JEK3IftPChxzba5Jh8_6ZVrqC96LmSBiMa50gD4zw/exec";
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbysMuP9k5cXVYaFGWyPk2G2lp3iO8asDzqupHivWHu6WOsk4bMDeJeO6eAnFiXSO6KUXA/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
