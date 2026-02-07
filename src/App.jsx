@@ -59,7 +59,7 @@ import {
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
 // ⚠️ URL ของ Google Apps Script (ตรวจสอบให้แน่ใจว่าเป็นตัวล่าสุดที่ Deploy)
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwdRwZMFi9deya8EkEXsPyVbBb93ofqU9q64KhCd7m2nZHtkjhX1phIuyhyQHlHMei3CQ/exec";
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbz55C0d_DJdUyVvSBrU1tlJho5ZIybY__0FLcyj4P2C9UGSYYKzBf9mELHjhTz76mvupw/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -158,7 +158,7 @@ const SmartFarmPro = () => {
   })));
 
   // --- Automation & Other States ---
-  const [rules, setRules] = useState([]); // เริ่มต้นเป็น array ว่าง แล้วไปดึงจาก Sheet เอา
+  const [rules, setRules] = useState([]); 
   const [systemLogs, setSystemLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [schedules, setSchedules] = useState([]); 
@@ -235,12 +235,14 @@ const SmartFarmPro = () => {
       const rulesRes = await fetch(`${SHEET_API_URL}?action=getRules`);
       const rulesJson = await rulesRes.json();
       if (Array.isArray(rulesJson)) {
-          // แปลงค่าให้เป็น Boolean และ String ที่ถูกต้อง
           const formattedRules = rulesJson.map(r => ({
               ...r,
               active: r.active === true || r.active === 'TRUE' || r.active === 'true',
               actionState: String(r.actionState)
           }));
+          
+          // เช็คว่าถ้ากำลัง Toggle อยู่ (เพื่อไม่ให้หน้าจอกระตุกกลับไปกลับมาเร็วเกินไป) อาจจะยังไม่ต้องอัปเดตถ้าข้อมูลยังไม่เปลี่ยน
+          // แต่ในที่นี้เราจะอัปเดตทับไปเลยเพื่อให้ข้อมูล Sync กับ Sheet เสมอ
           setRules(formattedRules);
       }
 
@@ -313,7 +315,7 @@ const SmartFarmPro = () => {
                 // Future: แจ้งเตือน Line
             } else {
                 const targetDevice = devices.find(d => d.id === rule.actionDevice);
-                const targetState = String(rule.actionState) === 'true'; // แปลงเป็น boolean
+                const targetState = String(rule.actionState) === 'true'; 
 
                 // 🔴 เช็คก่อนว่าสถานะเดิมตรงกันไหม? ถ้าตรงแล้วไม่ต้องส่งซ้ำ (กันระบบรวน)
                 if (targetDevice && targetDevice.status !== targetState) {
@@ -407,12 +409,17 @@ const SmartFarmPro = () => {
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
   
-  // 🔴 ฟังก์ชัน Toggle Rule (บันทึกลง Sheet)
+  // 🔴 ฟังก์ชัน Toggle Rule (แก้ไขแล้ว: ส่งค่า active ใหม่ไป Server)
   const toggleRule = async (id) => {
-    // 1. อัปเดตหน้าจอทันที (Optimistic)
-    setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
+    const targetRule = rules.find(r => r.id === id);
+    if (!targetRule) return;
     
-    // 2. ส่งคำสั่งไป Google Sheet
+    const newActiveState = !targetRule.active;
+
+    // 1. อัปเดตหน้าจอทันที (Optimistic)
+    setRules(prev => prev.map(r => r.id === id ? { ...r, active: newActiveState } : r));
+    
+    // 2. ส่งคำสั่งไป Google Sheet พร้อมค่า active ใหม่
     try {
         await fetch(SHEET_API_URL, {
             method: 'POST',
@@ -420,23 +427,25 @@ const SmartFarmPro = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 action: 'toggle_rule',
-                rule_id: id
+                rule_id: id,
+                active: newActiveState // 👈 ส่งค่า status ใหม่ไปด้วย
             })
         });
+        
+        const statusText = newActiveState ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
+        addSystemLog(`เปลี่ยนสถานะกฎ "${targetRule.name}": ${statusText}`, 'info');
+
     } catch (error) {
         console.error("Toggle rule error:", error);
     }
   };
 
-  // 🔴 ฟังก์ชัน Delete Rule (บันทึกลง Sheet)
   const deleteRule = async (id, ruleName) => {
     if (window.confirm(`คุณต้องการลบกฎ "${ruleName}" ใช่หรือไม่?`)) {
-      // 1. ลบบนหน้าจอทันที
       setRules(prev => prev.filter(r => r.id !== id));
       addSystemLog(`กำลังลบกฎ: ${ruleName}`, 'warning');
 
       try {
-          // 2. ส่งคำสั่งไป Google Sheet
           await fetch(SHEET_API_URL, {
             method: 'POST',
             mode: 'no-cors',
@@ -446,17 +455,13 @@ const SmartFarmPro = () => {
                 rule_id: id
             })
           });
-          
-          // รอสักนิดแล้วดึงข้อมูลใหม่เพื่อความชัวร์
           setTimeout(() => { fetchRealData(); }, 1500);
-
       } catch (error) {
           console.error("Delete rule error:", error);
       }
     }
   };
 
-  // 🔴 ฟังก์ชัน Add Rule (บันทึกลง Sheet)
   const handleAddRule = async (e) => {
     e.preventDefault();
     const ruleToAdd = {
@@ -469,7 +474,6 @@ const SmartFarmPro = () => {
         active: true
     };
 
-    // 1. อัปเดตหน้าจอทันที (ใช้ ID ชั่วคราว)
     const tempId = Date.now();
     setRules(prev => [...prev, { ...ruleToAdd, id: tempId }]);
     
@@ -478,7 +482,6 @@ const SmartFarmPro = () => {
     addSystemLog(`กำลังบันทึกกฎ: ${ruleToAdd.name}`, 'info');
 
     try {
-        // 2. ส่งข้อมูลไปบันทึกที่ Google Sheet
         await fetch(SHEET_API_URL, {
             method: 'POST',
             mode: 'no-cors',
@@ -488,13 +491,7 @@ const SmartFarmPro = () => {
                 ...ruleToAdd
             })
         });
-        
-        // 3. รอและดึงข้อมูลใหม่เพื่อให้ได้ ID จริงจาก Sheet
-        setTimeout(() => {
-             fetchRealData(); 
-             addSystemLog(`บันทึกกฎสำเร็จ: ${ruleToAdd.name}`, 'success');
-        }, 1500);
-
+        setTimeout(() => { fetchRealData(); addSystemLog(`บันทึกกฎสำเร็จ`, 'success'); }, 1500);
     } catch (error) {
         console.error("Add rule error:", error);
         addSystemLog(`บันทึกกฎล้มเหลว`, 'warning');
