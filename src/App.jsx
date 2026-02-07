@@ -718,5 +718,4 @@ const SmartFarmPro = () => {
   );
 };
 
-
 export default SmartFarmPro;
