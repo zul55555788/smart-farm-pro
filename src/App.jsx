@@ -58,7 +58,7 @@ import {
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
-// ⚠️ อย่าลืมใส่ URL ที่ได้จากการ Deploy ใหม่ตรงนี้นะครับ
+// ⚠️ URL ของ Google Apps Script (ตรวจสอบให้แน่ใจว่าเป็นตัวล่าสุดที่ Deploy)
 const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzP2BfOQsKkRuKlEz3Zmx6GVyvU43oX12d7yQGh1Fik0XeeodJ5Nh3v82UJJ0DtZ2JQRA/exec";
 
 // 1. Login Component
@@ -135,7 +135,7 @@ const SmartFarmPro = () => {
     n: 0, p: 0, k: 0
   });
 
-  // 🔴 เพิ่ม State สำหรับเก็บประวัติเซนเซอร์จริง
+  // State สำหรับเก็บประวัติเซนเซอร์จริง
   const [realSensorHistory, setRealSensorHistory] = useState([]);
 
   // Devices List
@@ -147,7 +147,7 @@ const SmartFarmPro = () => {
     { id: 'led', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: '-', schedule: null },
   ]);
 
-  // Graph Data (Mock สำหรับกราฟหน้าแรก)
+  // Graph Data (Mock)
   const [mockGraphData] = useState(Array.from({ length: 24 }, (_, i) => ({
     time: `${String(i).padStart(2, '0')}:00`,
     temp: 28 + Math.random() * 5,
@@ -159,9 +159,9 @@ const SmartFarmPro = () => {
 
   // --- Automation & Other States ---
   const [rules, setRules] = useState([
-    { id: 1, name: 'รดน้ำเมื่อดินแห้ง', sensor: 'soilMoisture', operator: '<', value: 40, actionDevice: 'pump1', actionState: true, active: true },
-    { id: 2, name: 'ระบายอากาศร้อน', sensor: 'airTemp', operator: '>', value: 35, actionDevice: 'fan', actionState: true, active: true },
-    { id: 3, name: 'เตือนค่า pH สูง', sensor: 'ph', operator: '>', value: 7.5, actionDevice: 'notify', actionState: true, active: false },
+    { id: 1, name: 'รดน้ำเมื่อดินแห้ง', sensor: 'soilMoisture', operator: '<', value: 40, actionDevice: 'pump1', actionState: 'true', active: true },
+    { id: 2, name: 'ระบายอากาศร้อน', sensor: 'airTemp', operator: '>', value: 35, actionDevice: 'fan', actionState: 'true', active: true },
+    { id: 3, name: 'เตือนค่า pH สูง', sensor: 'ph', operator: '>', value: 7.5, actionDevice: 'notify', actionState: 'notify', active: false },
   ]);
   const [systemLogs, setSystemLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
@@ -179,10 +179,10 @@ const SmartFarmPro = () => {
   const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
   const [newRule, setNewRule] = useState({ name: '', sensor: 'airTemp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' });
 
-  // --- 🟢 REAL DATA FETCHING FUNCTIONS (UPDATED) ---
+  // --- 🟢 REAL DATA FETCHING FUNCTIONS ---
   const fetchRealData = async () => {
     try {
-      // 1. Fetch Sensor Data (อ่านค่าเซนเซอร์ปัจจุบัน)
+      // 1. Fetch Sensor Data
       const sensorRes = await fetch(`${SHEET_API_URL}?action=getSensor`);
       const sensorJson = await sensorRes.json();
       
@@ -228,7 +228,7 @@ const SmartFarmPro = () => {
         setSystemLogs(logsJson);
       }
 
-      // 🔴 4. Fetch Sensor History (ดึงข้อมูลย้อนหลังสำหรับตาราง)
+      // 4. Fetch Sensor History
       const historyRes = await fetch(`${SHEET_API_URL}?action=getSensorHistory`);
       const historyJson = await historyRes.json();
       if (Array.isArray(historyJson)) {
@@ -240,19 +240,94 @@ const SmartFarmPro = () => {
     }
   };
 
-  // --- Main Effect: Fetch Loop ---
+  // --- ฟังก์ชันสำหรับส่งคำสั่งไป Google Sheets ---
+  const sendControlToAPI = async (deviceId, state, mode = 'manual', duration = 0) => {
+    try {
+      await fetch(SHEET_API_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'control_device',
+          device_id: deviceId,
+          state: state ? 'ON' : 'OFF',
+          mode: mode,
+          duration: duration
+        })
+      });
+      // รอสักครู่แล้วดึงข้อมูลใหม่ เพื่อให้สถานะอัปเดต
+      setTimeout(() => { fetchRealData(); }, 1000);
+    } catch (error) {
+      console.error("Error sending command:", error);
+    }
+  };
+
+  // --- Main Effect: Fetch Loop (ดึงข้อมูล) ---
   useEffect(() => {
     if (isLoggedIn) {
       fetchRealData();
       const interval = setInterval(() => {
         fetchRealData();
-        // Simulation Logic (เฉพาะตอนยังไม่ได้ค่าจริง)
-        setSensorData(prev => ({ ...prev }));
-      }, 3000);
+      }, 3000); // ดึงข้อมูลทุก 3 วินาที
 
       return () => clearInterval(interval);
     }
   }, [isLoggedIn]);
+
+  // --- 🤖 AUTOMATION LOGIC (ส่วนนี้ทำให้ระบบอัตโนมัติทำงานจริง) ---
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const checkAutomation = () => {
+      rules.forEach(rule => {
+        if (!rule.active) return; // ถ้ากฎปิดอยู่ ให้ข้าม
+
+        // 1. ดึงค่าจาก Sensor ที่กฎระบุ
+        let currentValue = 0;
+        if (rule.sensor === 'airTemp') currentValue = sensorData.airTemp;
+        else if (rule.sensor === 'airHum') currentValue = sensorData.airHum;
+        else if (rule.sensor === 'soilMoisture') currentValue = sensorData.soilMoisture;
+        else if (rule.sensor === 'soilTemp') currentValue = sensorData.soilTemp;
+        else if (rule.sensor === 'ph') currentValue = sensorData.ph;
+        else if (rule.sensor === 'ec') currentValue = sensorData.ec;
+
+        // 2. เช็คเงื่อนไข
+        let isConditionMet = false;
+        const ruleValue = parseFloat(rule.value);
+        
+        if (rule.operator === '>' && currentValue > ruleValue) isConditionMet = true;
+        if (rule.operator === '<' && currentValue < ruleValue) isConditionMet = true;
+        if (rule.operator === '=' && Math.abs(currentValue - ruleValue) < 0.1) isConditionMet = true;
+
+        // 3. สั่งงานอุปกรณ์เมื่อเงื่อนไขเป็นจริง
+        if (isConditionMet) {
+            if (rule.actionDevice === 'notify') {
+                // Future: แจ้งเตือน Line
+            } else {
+                const targetDevice = devices.find(d => d.id === rule.actionDevice);
+                const targetState = String(rule.actionState) === 'true'; // แปลงเป็น boolean
+
+                // 🔴 เช็คก่อนว่าสถานะเดิมตรงกันไหม? ถ้าตรงแล้วไม่ต้องส่งซ้ำ (กันระบบรวน)
+                if (targetDevice && targetDevice.status !== targetState) {
+                    addSystemLog(`🤖 กฎ "${rule.name}" ทำงาน: สั่ง ${targetDevice.name} -> ${targetState ? 'เปิด' : 'ปิด'}`, 'warning');
+                    
+                    // ส่งคำสั่งไป Google Sheet
+                    sendControlToAPI(targetDevice.id, targetState, 'auto');
+
+                    // อัปเดตหน้าเว็บทันที
+                    setDevices(prev => prev.map(d => d.id === targetDevice.id ? { ...d, status: targetState } : d));
+                }
+            }
+        }
+      });
+    };
+
+    // เช็คเงื่อนไขทุกๆ 3 วินาที
+    const automationInterval = setInterval(checkAutomation, 3000);
+    return () => clearInterval(automationInterval);
+
+  }, [sensorData, rules, devices, isLoggedIn]);
+
 
   // --- Other Helpers ---
   const addSystemLog = (message, type = 'info') => {
@@ -324,27 +399,6 @@ const SmartFarmPro = () => {
     }
     setShowTimerModal(false);
     setSelectedDeviceForTimer(null);
-  };
-
-  // --- ฟังก์ชันสำหรับส่งคำสั่งไป Google Sheets ---
-  const sendControlToAPI = async (deviceId, state, mode = 'manual', duration = 0) => {
-    try {
-      await fetch(SHEET_API_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'control_device',
-          device_id: deviceId,
-          state: state ? 'ON' : 'OFF',
-          mode: mode,
-          duration: duration
-        })
-      });
-      setTimeout(() => { fetchRealData(); }, 1000);
-    } catch (error) {
-      console.error("Error sending command:", error);
-    }
   };
 
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
@@ -619,8 +673,6 @@ const SmartFarmPro = () => {
                       <th className="p-4 font-semibold text-right">K</th>
                     </tr>
                   </thead>
-                  
-                  {/* 🔴 ส่วนแสดงผลข้อมูลจริง */}
                   <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                     {realSensorHistory.length > 0 ? (
                       realSensorHistory.map((row) => (
@@ -645,7 +697,6 @@ const SmartFarmPro = () => {
                       </tr>
                     )}
                   </tbody>
-
                 </table>
               </div>
             </div>
