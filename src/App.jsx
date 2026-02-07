@@ -158,11 +158,7 @@ const SmartFarmPro = () => {
   })));
 
   // --- Automation & Other States ---
-  const [rules, setRules] = useState([
-    { id: 1, name: 'รดน้ำเมื่อดินแห้ง', sensor: 'soilMoisture', operator: '<', value: 40, actionDevice: 'pump1', actionState: 'true', active: true },
-    { id: 2, name: 'ระบายอากาศร้อน', sensor: 'airTemp', operator: '>', value: 35, actionDevice: 'fan', actionState: 'true', active: true },
-    { id: 3, name: 'เตือนค่า pH สูง', sensor: 'ph', operator: '>', value: 7.5, actionDevice: 'notify', actionState: 'notify', active: false },
-  ]);
+  const [rules, setRules] = useState([]); // เริ่มต้นเป็น array ว่าง แล้วไปดึงจาก Sheet เอา
   const [systemLogs, setSystemLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [schedules, setSchedules] = useState([]); 
@@ -235,6 +231,19 @@ const SmartFarmPro = () => {
           setRealSensorHistory(historyJson);
       }
 
+      // 🔴 5. Fetch Rules (ดึงกฎจาก Sheet)
+      const rulesRes = await fetch(`${SHEET_API_URL}?action=getRules`);
+      const rulesJson = await rulesRes.json();
+      if (Array.isArray(rulesJson)) {
+          // แปลงค่าให้เป็น Boolean และ String ที่ถูกต้อง
+          const formattedRules = rulesJson.map(r => ({
+              ...r,
+              active: r.active === true || r.active === 'TRUE' || r.active === 'true',
+              actionState: String(r.actionState)
+          }));
+          setRules(formattedRules);
+      }
+
     } catch (err) {
       // console.error("Error fetching data:", err); 
     }
@@ -255,7 +264,6 @@ const SmartFarmPro = () => {
           duration: duration
         })
       });
-      // รอสักครู่แล้วดึงข้อมูลใหม่ เพื่อให้สถานะอัปเดต
       setTimeout(() => { fetchRealData(); }, 1000);
     } catch (error) {
       console.error("Error sending command:", error);
@@ -274,7 +282,7 @@ const SmartFarmPro = () => {
     }
   }, [isLoggedIn]);
 
-  // --- 🤖 AUTOMATION LOGIC (ส่วนนี้ทำให้ระบบอัตโนมัติทำงานจริง) ---
+  // --- 🤖 AUTOMATION LOGIC (เช็คกฎอัตโนมัติ) ---
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -299,7 +307,7 @@ const SmartFarmPro = () => {
         if (rule.operator === '<' && currentValue < ruleValue) isConditionMet = true;
         if (rule.operator === '=' && Math.abs(currentValue - ruleValue) < 0.1) isConditionMet = true;
 
-        // 3. สั่งงานอุปกรณ์เมื่อเงื่อนไขเป็นจริง
+        // 3. สั่งงานอุปกรณ์
         if (isConditionMet) {
             if (rule.actionDevice === 'notify') {
                 // Future: แจ้งเตือน Line
@@ -310,11 +318,7 @@ const SmartFarmPro = () => {
                 // 🔴 เช็คก่อนว่าสถานะเดิมตรงกันไหม? ถ้าตรงแล้วไม่ต้องส่งซ้ำ (กันระบบรวน)
                 if (targetDevice && targetDevice.status !== targetState) {
                     addSystemLog(`🤖 กฎ "${rule.name}" ทำงาน: สั่ง ${targetDevice.name} -> ${targetState ? 'เปิด' : 'ปิด'}`, 'warning');
-                    
-                    // ส่งคำสั่งไป Google Sheet
                     sendControlToAPI(targetDevice.id, targetState, 'auto');
-
-                    // อัปเดตหน้าเว็บทันที
                     setDevices(prev => prev.map(d => d.id === targetDevice.id ? { ...d, status: targetState } : d));
                 }
             }
@@ -322,7 +326,6 @@ const SmartFarmPro = () => {
       });
     };
 
-    // เช็คเงื่อนไขทุกๆ 3 วินาที
     const automationInterval = setInterval(checkAutomation, 3000);
     return () => clearInterval(automationInterval);
 
@@ -403,9 +406,100 @@ const SmartFarmPro = () => {
 
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
-  const toggleRule = (id) => setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
-  const deleteRule = (id, ruleName) => { if (window.confirm(`คุณต้องการลบกฎ "${ruleName}" ใช่หรือไม่?`)) { setRules(prev => prev.filter(r => r.id !== id)); addSystemLog(`ลบกฎอัตโนมัติ: ${ruleName}`, 'warning'); } };
-  const handleAddRule = (e) => { e.preventDefault(); const id = rules.length > 0 ? Math.max(...rules.map(r => r.id)) + 1 : 1; const ruleToAdd = { id, name: newRule.name || `Rule #${id}`, sensor: newRule.sensor, operator: newRule.operator, value: parseFloat(newRule.value), actionDevice: newRule.actionDevice, actionState: newRule.actionState === 'true', active: true }; setRules([...rules, ruleToAdd]); addSystemLog(`เพิ่มกฎใหม่: ${ruleToAdd.name}`, 'success'); setIsAddRuleModalOpen(false); setNewRule({ name: '', sensor: 'temp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' }); };
+  
+  // 🔴 ฟังก์ชัน Toggle Rule (บันทึกลง Sheet)
+  const toggleRule = async (id) => {
+    // 1. อัปเดตหน้าจอทันที (Optimistic)
+    setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
+    
+    // 2. ส่งคำสั่งไป Google Sheet
+    try {
+        await fetch(SHEET_API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'toggle_rule',
+                rule_id: id
+            })
+        });
+    } catch (error) {
+        console.error("Toggle rule error:", error);
+    }
+  };
+
+  // 🔴 ฟังก์ชัน Delete Rule (บันทึกลง Sheet)
+  const deleteRule = async (id, ruleName) => {
+    if (window.confirm(`คุณต้องการลบกฎ "${ruleName}" ใช่หรือไม่?`)) {
+      // 1. ลบบนหน้าจอทันที
+      setRules(prev => prev.filter(r => r.id !== id));
+      addSystemLog(`กำลังลบกฎ: ${ruleName}`, 'warning');
+
+      try {
+          // 2. ส่งคำสั่งไป Google Sheet
+          await fetch(SHEET_API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'delete_rule',
+                rule_id: id
+            })
+          });
+          
+          // รอสักนิดแล้วดึงข้อมูลใหม่เพื่อความชัวร์
+          setTimeout(() => { fetchRealData(); }, 1500);
+
+      } catch (error) {
+          console.error("Delete rule error:", error);
+      }
+    }
+  };
+
+  // 🔴 ฟังก์ชัน Add Rule (บันทึกลง Sheet)
+  const handleAddRule = async (e) => {
+    e.preventDefault();
+    const ruleToAdd = {
+        name: newRule.name,
+        sensor: newRule.sensor,
+        operator: newRule.operator,
+        value: parseFloat(newRule.value),
+        actionDevice: newRule.actionDevice,
+        actionState: newRule.actionState,
+        active: true
+    };
+
+    // 1. อัปเดตหน้าจอทันที (ใช้ ID ชั่วคราว)
+    const tempId = Date.now();
+    setRules(prev => [...prev, { ...ruleToAdd, id: tempId }]);
+    
+    setIsAddRuleModalOpen(false);
+    setNewRule({ name: '', sensor: 'airTemp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' });
+    addSystemLog(`กำลังบันทึกกฎ: ${ruleToAdd.name}`, 'info');
+
+    try {
+        // 2. ส่งข้อมูลไปบันทึกที่ Google Sheet
+        await fetch(SHEET_API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'add_rule',
+                ...ruleToAdd
+            })
+        });
+        
+        // 3. รอและดึงข้อมูลใหม่เพื่อให้ได้ ID จริงจาก Sheet
+        setTimeout(() => {
+             fetchRealData(); 
+             addSystemLog(`บันทึกกฎสำเร็จ: ${ruleToAdd.name}`, 'success');
+        }, 1500);
+
+    } catch (error) {
+        console.error("Add rule error:", error);
+        addSystemLog(`บันทึกกฎล้มเหลว`, 'warning');
+    }
+  };
 
   // --- AI Functions ---
   const convertToBase64 = (file) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = () => resolve(reader.result); reader.onerror = error => reject(error); });
@@ -673,6 +767,8 @@ const SmartFarmPro = () => {
                       <th className="p-4 font-semibold text-right">K</th>
                     </tr>
                   </thead>
+                  
+                  {/* 🔴 ส่วนแสดงผลข้อมูลจริง */}
                   <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                     {realSensorHistory.length > 0 ? (
                       realSensorHistory.map((row) => (
@@ -697,6 +793,7 @@ const SmartFarmPro = () => {
                       </tr>
                     )}
                   </tbody>
+
                 </table>
               </div>
             </div>
