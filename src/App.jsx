@@ -59,7 +59,7 @@ import {
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
 // ⚠️ URL ของ Google Apps Script (ตรวจสอบให้แน่ใจว่าเป็นตัวล่าสุดที่ Deploy)
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzP2BfOQsKkRuKlEz3Zmx6GVyvU43oX12d7yQGh1Fik0XeeodJ5Nh3v82UJJ0DtZ2JQRA/exec";
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycby2jI98YoYtjbrnnH8otxB7H1dC0oaoeaqy7o761Li-kB8AZXzg4D0ocz7N2A5uIosoaw/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
