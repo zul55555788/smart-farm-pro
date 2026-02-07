@@ -58,8 +58,8 @@ import {
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
-// ⚠️ URL ล่าสุดของคุณ
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwdRwZMFi9deya8EkEXsPyVbBb93ofqU9q64KhCd7m2nZHtkjhX1phIuyhyQHlHMei3CQ/exec";
+// ⚠️ URL ของ Google Apps Script
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbz55C0d_DJdUyVvSBrU1tlJho5ZIybY__0FLcyj4P2C9UGSYYKzBf9mELHjhTz76mvupw/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -165,7 +165,7 @@ const SmartFarmPro = () => {
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [selectedDeviceForTimer, setSelectedDeviceForTimer] = useState(null);
   const [timerMode, setTimerMode] = useState('timer');
-  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
+  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
   const [aiChatHistory, setAiChatHistory] = useState([{ role: 'model', text: 'สวัสดีครับ ผมคือผู้ช่วย AI ประจำฟาร์มของคุณ มีปัญหาเรื่องการปลูกพืช หรือต้องการวิเคราะห์ข้อมูลฟาร์ม ถามผมได้เลยครับ! 🌱' }]);
   const [aiInput, setAiInput] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -241,7 +241,7 @@ const SmartFarmPro = () => {
               actionState: String(r.actionState)
           }));
           
-          // ใช้ State ปัจจุบันเทียบเพื่อป้องกันการกระพริบ แต่ในที่นี้เราจะเซ็ตใหม่เลยเพื่อ Sync
+          // เพื่อป้องกันการกระตุกของสวิตช์ เราจะอัปเดตทับไปเลยเพื่อให้ข้อมูล Sync กับ Sheet เสมอ
           setRules(formattedRules);
       }
 
@@ -265,9 +265,8 @@ const SmartFarmPro = () => {
           duration: duration
         })
       });
-      // ไม่ต้อง fetchRealData ทันทีใน Loop เพราะมี Loop หลักทำงานอยู่แล้ว
-      // แต่ถ้าเป็นการกดปุ่ม Manual อาจจะเรียกได้
-      if(mode === 'manual') setTimeout(() => { fetchRealData(); }, 1000);
+      // ถ้าเป็นการกด Manual ให้ดึงข้อมูลใหม่ทันที
+      if (mode === 'manual') setTimeout(() => { fetchRealData(); }, 1000);
     } catch (error) {
       console.error("Error sending command:", error);
     }
@@ -313,19 +312,15 @@ const SmartFarmPro = () => {
         // 3. สั่งงานอุปกรณ์
         if (isConditionMet) {
             if (rule.actionDevice === 'notify') {
-                // Future: แจ้งเตือน Line
+                // แจ้งเตือน
             } else {
                 const targetDevice = devices.find(d => d.id === rule.actionDevice);
                 const targetState = String(rule.actionState) === 'true'; 
 
-                // 🔴 เช็คสถานะปัจจุบันก่อนสั่ง (ป้องกันการส่งคำสั่งรัวๆ)
+                // เช็ค: ถ้าอุปกรณ์ยังไม่อยู่ในสถานะที่ต้องการ ค่อยสั่ง (กันส่งซ้ำรัวๆ)
                 if (targetDevice && targetDevice.status !== targetState) {
                     addSystemLog(`🤖 กฎ "${rule.name}" ทำงาน: สั่ง ${targetDevice.name} -> ${targetState ? 'เปิด' : 'ปิด'}`, 'warning');
-                    
-                    // ส่งคำสั่งไป Google Sheet
                     sendControlToAPI(targetDevice.id, targetState, 'auto');
-
-                    // อัปเดตหน้าเว็บทันที (Optimistic)
                     setDevices(prev => prev.map(d => d.id === targetDevice.id ? { ...d, status: targetState } : d));
                 }
             }
@@ -333,10 +328,9 @@ const SmartFarmPro = () => {
       });
     };
 
-    // เรียกฟังก์ชันตรวจสอบทันทีที่ข้อมูลเปลี่ยน
-    checkAutomation();
+    checkAutomation(); // เรียกทำงานทันทีเมื่อ Data เปลี่ยน
 
-  }, [sensorData, rules, devices, isLoggedIn]); // Dependencies: เมื่อ sensorData เปลี่ยน, rules เปลี่ยน, หรือ devices เปลี่ยน จะเช็คใหม่ทันที
+  }, [sensorData, rules, devices, isLoggedIn]);
 
 
   // --- Other Helpers ---
@@ -414,7 +408,7 @@ const SmartFarmPro = () => {
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
   
-  // 🔴 ฟังก์ชัน Toggle Rule
+  // 🔴🔴🔴 ฟังก์ชัน Toggle Rule (แก้ไขแล้ว: สั่งปิดอุปกรณ์เมื่อปิดกฎ) 🔴🔴🔴
   const toggleRule = async (id) => {
     const targetRule = rules.find(r => r.id === id);
     if (!targetRule) return;
@@ -423,7 +417,20 @@ const SmartFarmPro = () => {
     // 1. อัปเดตหน้าจอทันที
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: newActiveState } : r));
     
-    // 2. ส่งค่าไป Server
+    // 🔴 2. ถ้าปิดกฎ (Active = False) ให้สั่งปิดอุปกรณ์ทันที
+    if (!newActiveState) {
+        if (targetRule.actionDevice !== 'notify') {
+             // ส่งคำสั่งปิดไปที่ ESP32
+             sendControlToAPI(targetRule.actionDevice, false, 'auto');
+             
+             // อัปเดตสถานะอุปกรณ์บนหน้าจอให้ดับลง
+             setDevices(prev => prev.map(d => d.id === targetRule.actionDevice ? { ...d, status: false } : d));
+             
+             addSystemLog(`⛔ ปิดกฎ "${targetRule.name}" -> สั่งปิด ${getDeviceName(targetRule.actionDevice)} ทันที`, 'warning');
+        }
+    }
+
+    // 3. ส่งค่าไป Server เพื่อบันทึกสถานะกฎ
     try {
         await fetch(SHEET_API_URL, {
             method: 'POST',
@@ -435,8 +442,12 @@ const SmartFarmPro = () => {
                 active: newActiveState
             })
         });
-        const statusText = newActiveState ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
-        addSystemLog(`เปลี่ยนสถานะกฎ "${targetRule.name}": ${statusText}`, 'info');
+        
+        // Log เฉพาะตอนเปิด เพราะตอนปิดเรา Log ไปแล้วข้างบน
+        if (newActiveState) {
+            addSystemLog(`เปลี่ยนสถานะกฎ "${targetRule.name}": เปิดใช้งาน`, 'info');
+        }
+
     } catch (error) {
         console.error("Toggle rule error:", error);
     }
