@@ -15,31 +15,31 @@ import {
   Cpu, 
   Wifi, 
   Save, 
-  Download,
-  Bell,
-  Search,
-  Filter,
-  Plus,
-  Trash2,
-  CheckCircle,
-  AlertTriangle,
-  Lock,
-  User,
-  Bot,
-  Sparkles,
-  Send,
-  MessageSquare,
-  Image as ImageIcon,
-  Camera,
-  Clock,
-  Edit3,
-  Calendar,
-  ChevronRight,
-  FlaskConical,
-  Timer,
-  Repeat,
-  Check,
-  Layers
+  Download, 
+  Bell, 
+  Search, 
+  Filter, 
+  Plus, 
+  Trash2, 
+  CheckCircle, 
+  AlertTriangle, 
+  Lock, 
+  User, 
+  Bot, 
+  Sparkles, 
+  Send, 
+  MessageSquare, 
+  Image as ImageIcon, 
+  Camera, 
+  Clock, 
+  Edit3, 
+  Calendar, 
+  ChevronRight, 
+  FlaskConical, 
+  Timer, 
+  Repeat, 
+  Check, 
+  Layers 
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -48,18 +48,18 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  AreaChart,
-  Area
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  AreaChart, 
+  Area 
 } from 'recharts';
 
 // --- Gemini API Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
 
-// ⚠️ URL ของ Google Apps Script (ตรวจสอบให้แน่ใจว่าเป็นตัวล่าสุดที่ Deploy)
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbz55C0d_DJdUyVvSBrU1tlJho5ZIybY__0FLcyj4P2C9UGSYYKzBf9mELHjhTz76mvupw/exec";
+// ⚠️ URL ล่าสุดของคุณ
+const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwdRwZMFi9deya8EkEXsPyVbBb93ofqU9q64KhCd7m2nZHtkjhX1phIuyhyQHlHMei3CQ/exec";
 
 // 1. Login Component
 const LoginScreen = ({ onLogin }) => {
@@ -165,7 +165,7 @@ const SmartFarmPro = () => {
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [selectedDeviceForTimer, setSelectedDeviceForTimer] = useState(null);
   const [timerMode, setTimerMode] = useState('timer');
-  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
+  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
   const [aiChatHistory, setAiChatHistory] = useState([{ role: 'model', text: 'สวัสดีครับ ผมคือผู้ช่วย AI ประจำฟาร์มของคุณ มีปัญหาเรื่องการปลูกพืช หรือต้องการวิเคราะห์ข้อมูลฟาร์ม ถามผมได้เลยครับ! 🌱' }]);
   const [aiInput, setAiInput] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -231,7 +231,7 @@ const SmartFarmPro = () => {
           setRealSensorHistory(historyJson);
       }
 
-      // 🔴 5. Fetch Rules (ดึงกฎจาก Sheet)
+      // 5. Fetch Rules (ดึงกฎจาก Sheet)
       const rulesRes = await fetch(`${SHEET_API_URL}?action=getRules`);
       const rulesJson = await rulesRes.json();
       if (Array.isArray(rulesJson)) {
@@ -241,8 +241,7 @@ const SmartFarmPro = () => {
               actionState: String(r.actionState)
           }));
           
-          // เช็คว่าถ้ากำลัง Toggle อยู่ (เพื่อไม่ให้หน้าจอกระตุกกลับไปกลับมาเร็วเกินไป) อาจจะยังไม่ต้องอัปเดตถ้าข้อมูลยังไม่เปลี่ยน
-          // แต่ในที่นี้เราจะอัปเดตทับไปเลยเพื่อให้ข้อมูล Sync กับ Sheet เสมอ
+          // ใช้ State ปัจจุบันเทียบเพื่อป้องกันการกระพริบ แต่ในที่นี้เราจะเซ็ตใหม่เลยเพื่อ Sync
           setRules(formattedRules);
       }
 
@@ -266,7 +265,9 @@ const SmartFarmPro = () => {
           duration: duration
         })
       });
-      setTimeout(() => { fetchRealData(); }, 1000);
+      // ไม่ต้อง fetchRealData ทันทีใน Loop เพราะมี Loop หลักทำงานอยู่แล้ว
+      // แต่ถ้าเป็นการกดปุ่ม Manual อาจจะเรียกได้
+      if(mode === 'manual') setTimeout(() => { fetchRealData(); }, 1000);
     } catch (error) {
       console.error("Error sending command:", error);
     }
@@ -284,7 +285,7 @@ const SmartFarmPro = () => {
     }
   }, [isLoggedIn]);
 
-  // --- 🤖 AUTOMATION LOGIC (เช็คกฎอัตโนมัติ) ---
+  // --- 🤖 AUTOMATION LOGIC (แก้ไขแล้ว: ทำงานทันทีเมื่อค่าเปลี่ยน) ---
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -317,10 +318,14 @@ const SmartFarmPro = () => {
                 const targetDevice = devices.find(d => d.id === rule.actionDevice);
                 const targetState = String(rule.actionState) === 'true'; 
 
-                // 🔴 เช็คก่อนว่าสถานะเดิมตรงกันไหม? ถ้าตรงแล้วไม่ต้องส่งซ้ำ (กันระบบรวน)
+                // 🔴 เช็คสถานะปัจจุบันก่อนสั่ง (ป้องกันการส่งคำสั่งรัวๆ)
                 if (targetDevice && targetDevice.status !== targetState) {
                     addSystemLog(`🤖 กฎ "${rule.name}" ทำงาน: สั่ง ${targetDevice.name} -> ${targetState ? 'เปิด' : 'ปิด'}`, 'warning');
+                    
+                    // ส่งคำสั่งไป Google Sheet
                     sendControlToAPI(targetDevice.id, targetState, 'auto');
+
+                    // อัปเดตหน้าเว็บทันที (Optimistic)
                     setDevices(prev => prev.map(d => d.id === targetDevice.id ? { ...d, status: targetState } : d));
                 }
             }
@@ -328,10 +333,10 @@ const SmartFarmPro = () => {
       });
     };
 
-    const automationInterval = setInterval(checkAutomation, 3000);
-    return () => clearInterval(automationInterval);
+    // เรียกฟังก์ชันตรวจสอบทันทีที่ข้อมูลเปลี่ยน
+    checkAutomation();
 
-  }, [sensorData, rules, devices, isLoggedIn]);
+  }, [sensorData, rules, devices, isLoggedIn]); // Dependencies: เมื่อ sensorData เปลี่ยน, rules เปลี่ยน, หรือ devices เปลี่ยน จะเช็คใหม่ทันที
 
 
   // --- Other Helpers ---
@@ -409,17 +414,16 @@ const SmartFarmPro = () => {
   const cancelSchedule = (deviceId) => { setSchedules(prev => prev.filter(s => s.deviceId !== deviceId)); setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d)); addSystemLog(`ยกเลิกการตั้งเวลาของ ${getDeviceName(deviceId)}`, 'warning'); };
   const toggleDevice = (id) => handleDeviceClick(devices.find(d => d.id === id)); 
   
-  // 🔴 ฟังก์ชัน Toggle Rule (แก้ไขแล้ว: ส่งค่า active ใหม่ไป Server)
+  // 🔴 ฟังก์ชัน Toggle Rule
   const toggleRule = async (id) => {
     const targetRule = rules.find(r => r.id === id);
     if (!targetRule) return;
-    
     const newActiveState = !targetRule.active;
 
-    // 1. อัปเดตหน้าจอทันที (Optimistic)
+    // 1. อัปเดตหน้าจอทันที
     setRules(prev => prev.map(r => r.id === id ? { ...r, active: newActiveState } : r));
     
-    // 2. ส่งคำสั่งไป Google Sheet พร้อมค่า active ใหม่
+    // 2. ส่งค่าไป Server
     try {
         await fetch(SHEET_API_URL, {
             method: 'POST',
@@ -428,13 +432,11 @@ const SmartFarmPro = () => {
             body: JSON.stringify({
                 action: 'toggle_rule',
                 rule_id: id,
-                active: newActiveState // 👈 ส่งค่า status ใหม่ไปด้วย
+                active: newActiveState
             })
         });
-        
         const statusText = newActiveState ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
         addSystemLog(`เปลี่ยนสถานะกฎ "${targetRule.name}": ${statusText}`, 'info');
-
     } catch (error) {
         console.error("Toggle rule error:", error);
     }
