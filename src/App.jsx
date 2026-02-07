@@ -15,31 +15,31 @@ import {
   Cpu, 
   Wifi, 
   Save, 
-  Download, 
-  Bell, 
-  Search, 
-  Filter, 
-  Plus, 
-  Trash2, 
-  CheckCircle, 
-  AlertTriangle, 
-  Lock, 
-  User, 
-  Bot, 
-  Sparkles, 
-  Send, 
-  MessageSquare, 
-  Image as ImageIcon, 
-  Camera, 
-  Clock, 
-  Edit3, 
-  Calendar, 
-  ChevronRight, 
-  FlaskConical, 
-  Timer, 
-  Repeat, 
-  Check, 
-  Layers 
+  Download,
+  Bell,
+  Search,
+  Filter,
+  Plus,
+  Trash2,
+  CheckCircle,
+  AlertTriangle,
+  Lock,
+  User,
+  Bot,
+  Sparkles,
+  Send,
+  MessageSquare,
+  Image as ImageIcon,
+  Camera,
+  Clock,
+  Edit3,
+  Calendar,
+  ChevronRight,
+  FlaskConical,
+  Timer,
+  Repeat,
+  Check,
+  Layers
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -48,10 +48,10 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  AreaChart, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  AreaChart,
   Area,
   Legend,
   ComposedChart
@@ -59,7 +59,7 @@ import {
 
 // --- Configuration ---
 const apiKey = "AIzaSyBo9lG-T9b_uoCKkmRksDxizrGLM-fflhw"; 
-// ⚠️ ใช้ URL ล่าสุดที่คุณ Deploy มา
+// ⚠️ URL ล่าสุดที่คุณให้มา
 const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbz55C0d_DJdUyVvSBrU1tlJho5ZIybY__0FLcyj4P2C9UGSYYKzBf9mELHjhTz76mvupw/exec";
 
 // 1. Login Component
@@ -142,15 +142,19 @@ const SmartFarmPro = () => {
 
   // Devices List
   const [devices, setDevices] = useState([
-    { id: 'pump1', name: 'ปั๊มน้ำหลัก', type: 'pump', status: false },
-    { id: 'vitA', name: 'ปั๊มวิตามิน A', type: 'chemical', status: false },
-    { id: 'vitB', name: 'ปั๊มวิตามิน B', type: 'chemical', status: false },
-    { id: 'fan', name: 'พัดลมระบายอากาศ', type: 'fan', status: false },
-    { id: 'led', name: 'ไฟ LED โรงเรือน', type: 'light', status: false },
+    { id: 'pump1', name: 'ปั๊มน้ำหลัก', type: 'pump', status: false, lastActive: '-', schedule: null },
+    { id: 'vitA', name: 'ปั๊มวิตามิน A', type: 'chemical', status: false, lastActive: '-', schedule: null },
+    { id: 'vitB', name: 'ปั๊มวิตามิน B', type: 'chemical', status: false, lastActive: '-', schedule: null },
+    { id: 'fan', name: 'พัดลมระบายอากาศ', type: 'fan', status: false, lastActive: '-', schedule: null },
+    { id: 'led', name: 'ไฟ LED โรงเรือน', type: 'light', status: false, lastActive: '-', schedule: null },
   ]);
 
   // --- Automation & Other States ---
-  const [rules, setRules] = useState([]); 
+  const [rules, setRules] = useState([
+    { id: 1, name: 'รดน้ำเมื่อดินแห้ง', sensor: 'soilMoisture', operator: '<', value: 40, actionDevice: 'pump1', actionState: true, active: true },
+    { id: 2, name: 'ระบายอากาศร้อน', sensor: 'airTemp', operator: '>', value: 35, actionDevice: 'fan', actionState: true, active: true },
+  ]);
+  
   const [systemLogs, setSystemLogs] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [schedules, setSchedules] = useState([]); 
@@ -159,7 +163,7 @@ const SmartFarmPro = () => {
   const [showTimerModal, setShowTimerModal] = useState(false);
   const [selectedDeviceForTimer, setSelectedDeviceForTimer] = useState(null);
   const [timerMode, setTimerMode] = useState('timer');
-  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }], repeatMode: 'everyday', selectedDays: [] });
+  const [scheduleConfig, setScheduleConfig] = useState({ durationVal: '10', durationUnit: 'minutes', timeSlots: [{ id: 1, time: '08:00', active: true }, { id: 2, time: '12:00', active: false }, { id: 3, time: '17:00', active: false }], repeatMode: 'everyday', selectedDays: [0, 1, 2, 3, 4, 5, 6] });
   const [isAddRuleModalOpen, setIsAddRuleModalOpen] = useState(false);
   const [newRule, setNewRule] = useState({ name: '', sensor: 'airTemp', operator: '>', value: '', actionDevice: 'pump1', actionState: 'true' });
 
@@ -171,13 +175,40 @@ const SmartFarmPro = () => {
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
 
+  // --- Helper Functions (Declared ONCE here) ---
+  const addSystemLog = (message, type = 'info') => {
+    const id = Date.now();
+    const newLog = { id, time: new Date().toLocaleTimeString('th-TH'), message, type };
+    setSystemLogs(prev => [newLog, ...prev].slice(0, 20));
+    setToasts(prev => [...prev, newLog]);
+    setTimeout(() => setToasts(prev => prev.filter(l => l.id !== newLog.id)), 3000);
+  };
+
+  const getDeviceName = (id) => {
+    if (id === 'notify') return 'แจ้งเตือน Line';
+    const dev = devices.find(d => d.id === id);
+    return dev ? dev.name : id;
+  };
+
+  const getSensorLabel = (key) => {
+    const labels = { 
+      airTemp: 'อุณหภูมิอากาศ', 
+      airHum: 'ความชื้นอากาศ', 
+      soilMoisture: 'ความชื้นดิน', 
+      soilTemp: 'อุณหภูมิดิน',
+      ph: 'pH', 
+      ec: 'EC' 
+    };
+    return labels[key] || key;
+  };
+
   // --- 🟢 REAL DATA FETCHING ---
   const fetchRealData = async () => {
     try {
       // 1. Sensor
       const sensorRes = await fetch(`${SHEET_API_URL}?action=getSensor`);
       const sensorJson = await sensorRes.json();
-      if (sensorJson) {
+      if (sensorJson && sensorJson.timestamp) { // Check if valid data returned
         setSensorData(prev => ({
           ...prev,
           airTemp: parseFloat(sensorJson.air_temp) || 0,
@@ -210,44 +241,26 @@ const SmartFarmPro = () => {
           })
         );
       }
+      
+      // Mock Graph Data update based on current reading if no history API
+      // In real scenario, fetch history from API. Here we simulate accumulating data.
+      setGraphData(prev => {
+        const newDataPoint = {
+            time: new Date().toLocaleTimeString('th-TH', {hour: '2-digit', minute: '2-digit'}),
+            airTemp: sensorData.airTemp,
+            airHum: sensorData.airHum,
+            soilTemp: sensorData.soilTemp,
+            soilMoisture: sensorData.soilMoisture,
+            ph: sensorData.ph,
+            ec: sensorData.ec,
+            n: sensorData.n, p: sensorData.p, k: sensorData.k
+        };
+        const updated = [...prev, newDataPoint];
+        if (updated.length > 20) updated.shift();
+        return updated;
+      });
 
-      // 3. Logs
-      const logsRes = await fetch(`${SHEET_API_URL}?action=getLogs`);
-      const logsJson = await logsRes.json();
-      if (Array.isArray(logsJson)) setSystemLogs(logsJson);
-
-      // 4. History
-      const historyRes = await fetch(`${SHEET_API_URL}?action=getSensorHistory`);
-      const historyJson = await historyRes.json();
-      if (Array.isArray(historyJson)) {
-          setRealSensorHistory(historyJson);
-          const formattedGraphData = [...historyJson].reverse().map(item => ({
-            time: item.timestamp.split(' ')[1],
-            fullDate: item.timestamp,
-            airTemp: parseFloat(item.air_temp),
-            airHum: parseFloat(item.air_humidity),
-            soilTemp: parseFloat(item.soil_temp),
-            soilMoisture: parseFloat(item.soil_moisture),
-            ph: parseFloat(item.ph),
-            ec: parseFloat(item.ec),
-            n: parseFloat(item.n), p: parseFloat(item.p), k: parseFloat(item.k)
-          }));
-          setGraphData(formattedGraphData);
-      }
-
-      // 5. Rules
-      const rulesRes = await fetch(`${SHEET_API_URL}?action=getRules`);
-      const rulesJson = await rulesRes.json();
-      if (Array.isArray(rulesJson)) {
-          const formattedRules = rulesJson.map(r => ({
-              ...r,
-              active: r.active === true || r.active === 'TRUE' || r.active === 'true',
-              actionState: String(r.actionState)
-          }));
-          setRules(formattedRules);
-      }
-
-    } catch (err) { console.error(err); }
+    } catch (err) { /* Silent fail to avoid annoying toasts */ }
   };
 
   // --- API Actions ---
@@ -259,7 +272,10 @@ const SmartFarmPro = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'control_device', device_id: deviceId, state: state ? 'ON' : 'OFF', mode, duration })
       });
-      if(mode === 'manual') setTimeout(fetchRealData, 1000);
+      // Force update UI optimistically
+      setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: state } : d));
+      // Refresh real data shortly after
+      setTimeout(fetchRealData, 2000);
     } catch (error) { console.error(error); }
   };
 
@@ -267,19 +283,51 @@ const SmartFarmPro = () => {
   useEffect(() => {
     if (isLoggedIn) {
       fetchRealData();
-      const interval = setInterval(fetchRealData, 3000);
+      const interval = setInterval(() => {
+          fetchRealData();
+          
+          // Schedule Logic
+          const now = new Date();
+          const currentTimeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const currentDay = now.getDay();
+
+          schedules.forEach(sch => {
+             let isToday = false;
+             if (sch.config.repeatMode === 'everyday' || sch.config.repeatMode === 'once') isToday = true;
+             else if (sch.config.repeatMode === 'custom' && sch.config.selectedDays.includes(currentDay)) isToday = true;
+
+             if (isToday) {
+                sch.config.timeSlots.forEach(slot => {
+                    if (slot.active && slot.time === currentTimeStr && now.getSeconds() === 0) {
+                        // Trigger
+                        let durationMs = parseInt(sch.config.durationVal) * 1000;
+                        if (sch.config.durationUnit === 'minutes') durationMs *= 60;
+                        if (sch.config.durationUnit === 'hours') durationMs *= 3600;
+                        
+                        sendControlToAPI(sch.deviceId, true, 'auto', durationMs/1000);
+                        addSystemLog(`⏰ ถึงเวลาทำงาน: ${getDeviceName(sch.deviceId)}`, 'success');
+                        
+                        // Auto off handled by ESP32 or Logic here
+                        setTimeout(() => {
+                            sendControlToAPI(sch.deviceId, false, 'auto');
+                            addSystemLog(`⏰ ครบเวลา: ปิด ${getDeviceName(sch.deviceId)}`, 'normal');
+                        }, durationMs);
+                    }
+                });
+             }
+          });
+
+      }, 3000);
       return () => clearInterval(interval);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, schedules]);
 
   // --- 🤖 AUTOMATION LOGIC ---
   useEffect(() => {
     if (!isLoggedIn) return;
-
     const checkAutomation = () => {
       rules.forEach(rule => {
         if (!rule.active) return;
-
         let currentValue = 0;
         if (rule.sensor === 'airTemp') currentValue = sensorData.airTemp;
         else if (rule.sensor === 'airHum') currentValue = sensorData.airHum;
@@ -302,7 +350,6 @@ const SmartFarmPro = () => {
                 if (targetDevice && targetDevice.status !== targetState) {
                     addSystemLog(`🤖 กฎ "${rule.name}" ทำงาน: สั่ง ${targetDevice.name} -> ${targetState ? 'เปิด' : 'ปิด'}`, 'warning');
                     sendControlToAPI(targetDevice.id, targetState, 'auto');
-                    setDevices(prev => prev.map(d => d.id === targetDevice.id ? { ...d, status: targetState } : d));
                 }
             }
         }
@@ -311,23 +358,12 @@ const SmartFarmPro = () => {
     checkAutomation();
   }, [sensorData, rules, devices, isLoggedIn]);
 
-  // --- Helper Functions ---
-  const addSystemLog = (message, type = 'info') => {
-    const newLog = { id: Date.now(), time: new Date().toLocaleTimeString('th-TH'), message, type };
-    setSystemLogs(prev => [newLog, ...prev].slice(0, 20));
-    setToasts(prev => [...prev, newLog]);
-    setTimeout(() => setToasts(prev => prev.filter(l => l.id !== newLog.id)), 4000);
-  };
-
-  const getDeviceName = (id) => devices.find(d => d.id === id)?.name || id;
-  const getSensorLabel = (key) => ({ airTemp: 'อุณหภูมิอากาศ', airHum: 'ความชื้นอากาศ', soilMoisture: 'ความชื้นดิน', ph: 'pH' }[key] || key);
 
   // --- Handlers ---
   const handleDeviceClick = (device) => {
     if (device.status) {
-      setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: false } : d));
-      addSystemLog(`สั่งปิด ${device.name}`, 'normal');
       sendControlToAPI(device.id, false);
+      addSystemLog(`สั่งปิด ${device.name}`, 'normal');
     } else {
       setSelectedDeviceForTimer(device);
       setShowTimerModal(true);
@@ -337,85 +373,84 @@ const SmartFarmPro = () => {
   const confirmTimerSettings = () => {
     if (!selectedDeviceForTimer) return;
     const val = parseInt(scheduleConfig.durationVal) || 0;
-    if (val > 0) {
-        let durationMs = val * 1000 * (scheduleConfig.durationUnit === 'minutes' ? 60 : scheduleConfig.durationUnit === 'hours' ? 3600 : 1);
-        setDevices(prev => prev.map(d => d.id === selectedDeviceForTimer.id ? { ...d, status: true } : d));
-        addSystemLog(`สั่งเปิด ${selectedDeviceForTimer.name} (${val} ${scheduleConfig.durationUnit})`, 'success');
-        sendControlToAPI(selectedDeviceForTimer.id, true, 'manual', val);
-        
-        setTimeout(() => {
-             setDevices(prev => prev.map(d => {
-                if (d.id === selectedDeviceForTimer.id && d.status) {
-                    sendControlToAPI(d.id, false);
-                    return { ...d, status: false };
-                }
-                return d;
-             }));
-        }, durationMs);
+    
+    if (timerMode === 'timer') {
+        // Quick Run
+        if (val > 0) {
+            let durationMs = val * 1000 * (scheduleConfig.durationUnit === 'minutes' ? 60 : scheduleConfig.durationUnit === 'hours' ? 3600 : 1);
+            addSystemLog(`สั่งเปิด ${selectedDeviceForTimer.name} (${val} ${scheduleConfig.durationUnit})`, 'success');
+            sendControlToAPI(selectedDeviceForTimer.id, true, 'manual', durationMs/1000);
+            
+            setTimeout(() => {
+                sendControlToAPI(selectedDeviceForTimer.id, false);
+                addSystemLog(`ครบเวลา: ปิด ${selectedDeviceForTimer.name}`, 'warning');
+            }, durationMs);
+        }
+    } else {
+        // Schedule
+        const newSchedule = { id: Date.now(), deviceId: selectedDeviceForTimer.id, config: { ...scheduleConfig } };
+        setSchedules(prev => [...prev.filter(s => s.deviceId !== selectedDeviceForTimer.id), newSchedule]);
+        const activeSlots = scheduleConfig.timeSlots.filter(s => s.active).length;
+        setDevices(prev => prev.map(d => d.id === selectedDeviceForTimer.id ? { ...d, schedule: `${activeSlots} เวลา` } : d));
+        addSystemLog(`บันทึกตารางเวลา ${selectedDeviceForTimer.name} แล้ว`, 'info');
     }
     setShowTimerModal(false);
   };
 
-  // 🔴 Toggle Rule: แก้ไขให้สั่งปิดอุปกรณ์เมื่อปิดกฎ
-  const toggleRule = async (id) => {
-    const targetRule = rules.find(r => r.id === id);
-    if (!targetRule) return;
-    const newActiveState = !targetRule.active;
-
-    setRules(prev => prev.map(r => r.id === id ? { ...r, active: newActiveState } : r));
-    
-    if (!newActiveState) {
-        if (targetRule.actionDevice !== 'notify') {
-             sendControlToAPI(targetRule.actionDevice, false, 'auto');
-             setDevices(prev => prev.map(d => d.id === targetRule.actionDevice ? { ...d, status: false } : d));
-             addSystemLog(`⛔ ปิดกฎ "${targetRule.name}" -> สั่งปิด ${getDeviceName(targetRule.actionDevice)} ทันที`, 'warning');
-        }
-    }
-
-    try {
-        await fetch(SHEET_API_URL, {
-            method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'toggle_rule', rule_id: id, active: newActiveState }) 
-        });
-        if (newActiveState) addSystemLog(`เปลี่ยนสถานะกฎ "${targetRule.name}": เปิดใช้งาน`, 'info');
-    } catch (e) { console.error(e); }
+  const cancelSchedule = (deviceId) => {
+      setSchedules(prev => prev.filter(s => s.deviceId !== deviceId));
+      setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, schedule: null } : d));
+      addSystemLog(`ยกเลิกเวลาของ ${getDeviceName(deviceId)}`, 'warning');
   };
 
-  const deleteRule = async (id, name) => {
+  const toggleRule = (id) => setRules(prev => prev.map(r => r.id === id ? { ...r, active: !r.active } : r));
+  
+  const deleteRule = (id, name) => {
     if (window.confirm(`ลบกฎ "${name}"?`)) {
         setRules(prev => prev.filter(r => r.id !== id));
         addSystemLog(`ลบกฎ: ${name}`, 'warning');
-        await fetch(SHEET_API_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete_rule', rule_id: id }) });
-        setTimeout(fetchRealData, 1500);
     }
   };
 
-  const handleAddRule = async (e) => {
+  const handleAddRule = (e) => {
     e.preventDefault();
-    const ruleToAdd = { ...newRule, value: parseFloat(newRule.value), active: true };
-    setRules(prev => [...prev, { ...ruleToAdd, id: Date.now() }]);
+    const ruleToAdd = { ...newRule, id: Date.now(), value: parseFloat(newRule.value), active: true };
+    setRules(prev => [...prev, ruleToAdd]);
     setIsAddRuleModalOpen(false);
-    addSystemLog(`กำลังบันทึกกฎ: ${newRule.name}`, 'info');
-    
-    await fetch(SHEET_API_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_rule', ...ruleToAdd }) });
-    setTimeout(() => { fetchRealData(); addSystemLog('บันทึกกฎสำเร็จ', 'success'); }, 1500);
+    addSystemLog(`เพิ่มกฎใหม่: ${newRule.name}`, 'success');
   };
 
-  // AI & Helpers
+  // AI Helpers
   const handleImageSelect = (e) => { if(e.target.files[0]) setSelectedImage({ file: e.target.files[0], previewUrl: URL.createObjectURL(e.target.files[0]) }); };
   const clearSelectedImage = () => { setSelectedImage(null); if(fileInputRef.current) fileInputRef.current.value=''; };
   const convertToBase64 = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.readAsDataURL(file); r.onload=()=>resolve(r.result); r.onerror=reject; });
   const handleSendMessage = async () => { if(!aiInput.trim() && !selectedImage) return; let msg = { role: 'user', text: aiInput }; if(selectedImage) { const b64 = await convertToBase64(selectedImage.file); msg.image = b64; msg.inline_data = { mime_type: selectedImage.file.type, data: b64.split(',')[1] }; } setAiChatHistory(p => [...p, msg]); setAiInput(''); clearSelectedImage(); setIsAiThinking(true); 
+    // Gemini API Call
     try {
-        // จำลองตอบกลับ (หรือใส่ Logic เรียก Gemini จริงตรงนี้)
-        setTimeout(() => { setAiChatHistory(p => [...p, { role: 'model', text: 'ระบบได้รับข้อมูลแล้ว (Mock Response)' }]); setIsAiThinking(false); }, 1000);
-    } catch(e) { setIsAiThinking(false); }
+        const parts = [{ text: `Farm Data: ${JSON.stringify(sensorData)}. Question: ${msg.text || "Analyze image"}` }];
+        if (msg.inline_data) parts.push({ inline_data: msg.inline_data });
+        
+        const models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"];
+        let result = "";
+        for (const model of models) {
+             try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }] }) });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.candidates) { result = data.candidates[0].content.parts[0].text; break; }
+                }
+             } catch(e) {}
+        }
+        if (!result) throw new Error("AI Busy");
+        setAiChatHistory(p => [...p, { role: 'model', text: result }]);
+    } catch (e) { setAiChatHistory(p => [...p, { role: 'model', text: 'ขออภัย ระบบ AI ขัดข้องชั่วคราว' }]); }
+    setIsAiThinking(false);
   };
-  const handleQuickAnalysis = () => { setActiveTab('ai-assistant'); callGeminiAI('', true); };
+  const handleQuickAnalysis = () => { setActiveTab('ai-assistant'); setAiInput('วิเคราะห์สุขภาพฟาร์ม'); handleSendMessage(); };
 
-  // UI Helper Components
+  // --- UI Helper Components ---
   const SidebarItem = ({ id, icon: Icon, label, special }) => <button onClick={() => { setActiveTab(id); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-1 ${activeTab === id ? special ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}> <Icon size={20} className={special ? (activeTab !== id ? 'text-indigo-400 group-hover:text-white' : '') : ''} /> <span className="font-medium">{label}</span> {special && <Sparkles size={16} className={`ml-auto ${activeTab === id ? 'text-yellow-300' : 'text-indigo-400'}`} />} </button>;
-  const Card = ({ title, value, unit, icon: Icon, color, subValue }) => <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow"> <div className={`absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6 rounded-full opacity-10 group-hover:opacity-20 transition-opacity`} style={{ backgroundColor: color }}></div> <div className="flex justify-between items-start mb-4"> <div className={`p-3 rounded-xl bg-opacity-10`} style={{ backgroundColor: color }}> <Icon size={24} style={{ color: color }} /> </div> </div> <p className="text-slate-500 text-sm font-medium mb-1">{title}</p> <div className="flex items-baseline gap-1"> <h3 className="text-3xl font-bold text-slate-800">{value}</h3> <span className="text-sm text-slate-400">{unit}</span> </div> {subValue && <p className="text-xs text-slate-400 mt-2">{subValue}</p>} </div>;
+  const Card = ({ title, value, unit, icon: Icon, color, subValue, subtitle }) => <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-shadow"> <div className={`absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6 rounded-full opacity-10 group-hover:opacity-20 transition-opacity`} style={{ backgroundColor: color }}></div> <div className="flex justify-between items-start mb-4"> <div className={`p-3 rounded-xl bg-opacity-10`} style={{ backgroundColor: color }}> <Icon size={24} style={{ color: color }} /> </div> </div> <p className="text-slate-500 text-sm font-medium mb-1">{title}</p> <div className="flex items-baseline gap-1"> <h3 className="text-3xl font-bold text-slate-800">{value}</h3> <span className="text-sm text-slate-400">{unit}</span> </div> {subtitle && <p className="text-[10px] uppercase text-slate-400 mt-1 font-semibold tracking-wider">{subtitle}</p>} {subValue && <p className="text-xs text-slate-400 mt-2">{subValue}</p>} </div>;
   const NPKBar = ({ label, value, max, color }) => <div className="mb-3"> <div className="flex justify-between text-xs mb-1 font-medium"> <span className="text-slate-600">{label}</span> <span className="text-slate-800">{value} mg/kg</span> </div> <div className="w-full bg-slate-100 rounded-full h-2.5"> <div className="h-2.5 rounded-full transition-all duration-500" style={{ width: `${(value/max)*100}%`, backgroundColor: color }}></div> </div> </div>;
   // Modal Helpers
   const toggleDaySelection = (dayIndex) => { const currentDays = scheduleConfig.selectedDays; if (currentDays.includes(dayIndex)) { setScheduleConfig({ ...scheduleConfig, selectedDays: currentDays.filter(d => d !== dayIndex) }); } else { setScheduleConfig({ ...scheduleConfig, selectedDays: [...currentDays, dayIndex] }); } };
@@ -429,7 +464,69 @@ const SmartFarmPro = () => {
     <div className="flex h-screen bg-[#F1F5F9] font-sans text-slate-800 overflow-hidden relative">
       
       {/* 🟢 Modals */}
-      {showTimerModal && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white rounded-2xl p-6 w-full max-w-sm"><h3 className="text-lg font-bold mb-4">ตั้งเวลา {selectedDeviceForTimer?.name}</h3><div className="flex gap-2 mb-4"><input type="number" value={scheduleConfig.durationVal} onChange={e=>setScheduleConfig({...scheduleConfig, durationVal:e.target.value})} className="border p-2 rounded w-full" placeholder="ระยะเวลา"/><select className="border p-2 rounded" onChange={e=>setScheduleConfig({...scheduleConfig, durationUnit:e.target.value})}><option value="minutes">นาที</option><option value="seconds">วินาที</option></select></div><div className="flex gap-2"><button onClick={()=>setShowTimerModal(false)} className="flex-1 p-2 border rounded">ยกเลิก</button><button onClick={confirmTimerSettings} className="flex-1 p-2 bg-emerald-500 text-white rounded">เริ่มทำงาน</button></div></div></div>)}
+      {showTimerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-slate-100 flex justify-center bg-slate-50/50">
+               <div className="flex bg-slate-200/80 p-1 rounded-xl w-full max-w-[280px]">
+                  <button onClick={() => setTimerMode('timer')} className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-bold transition-all shadow-sm ${timerMode === 'timer' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500 hover:text-slate-700'}`}>นับถอยหลัง</button>
+                  <button onClick={() => setTimerMode('schedule')} className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-bold transition-all shadow-sm ${timerMode === 'schedule' ? 'bg-white text-emerald-600 shadow' : 'text-slate-500 hover:text-slate-700'}`}>ตั้งเวลาทุกวัน</button>
+               </div>
+            </div>
+            <div className="p-6 text-center">
+              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-500 shadow-emerald-100 shadow-md">
+                {timerMode === 'timer' ? <Timer size={28} /> : <Calendar size={28} />}
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 mb-1">{timerMode === 'timer' ? 'เปิดใช้งานทันที' : 'ตั้งเวลาทำงานอัตโนมัติ'}</h3>
+              <p className="text-sm text-slate-500 mb-6">{selectedDeviceForTimer?.name}</p>
+              
+              <div className="mb-4 text-left">
+                <label className="text-xs text-slate-400 font-bold ml-1 uppercase tracking-wider">ระยะเวลา (DURATION)</label>
+                <div className="flex gap-2 mt-1 h-12">
+                    <input type="number" placeholder="0" className="w-[60%] px-4 h-full border border-slate-200 rounded-xl text-center text-xl font-bold text-slate-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 focus:outline-none transition-all" value={scheduleConfig.durationVal} onChange={(e) => setScheduleConfig({...scheduleConfig, durationVal: e.target.value})} autoFocus />
+                    <select className="w-[40%] px-2 h-full border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:border-emerald-500 focus:outline-none text-center text-sm font-bold appearance-none cursor-pointer hover:bg-slate-100 transition-colors" value={scheduleConfig.durationUnit} onChange={(e) => setScheduleConfig({...scheduleConfig, durationUnit: e.target.value})}>
+                    <option value="seconds">วินาที</option><option value="minutes">นาที</option><option value="hours">ชั่วโมง</option>
+                    </select>
+                </div>
+              </div>
+
+              {timerMode === 'schedule' && (
+                  <div className="mb-6 text-left animate-in slide-in-from-top-2 duration-200">
+                     <label className="text-xs text-slate-400 font-bold ml-1 uppercase tracking-wider">เริ่มเวลา (START TIME)</label>
+                     <div className="mt-2 space-y-2">
+                        {scheduleConfig.timeSlots.map((slot) => (
+                            <div key={slot.id} className={`flex items-center gap-2 p-2 rounded-xl border transition-all ${slot.active ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                                 <button onClick={() => toggleTimeSlot(slot.id)} className={`w-6 h-6 rounded-full flex items-center justify-center border ${slot.active ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white'}`}> {slot.active && <Check size={14} />} </button>
+                                 <div className="flex-1 flex items-center gap-2"><Clock size={16} className={slot.active ? 'text-emerald-600' : 'text-slate-400'} /><input type="time" value={slot.time} onChange={(e) => updateTimeSlot(slot.id, e.target.value)} disabled={!slot.active} className="bg-transparent font-bold text-slate-700 focus:outline-none w-full disabled:text-slate-400"/></div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mb-6 mt-4 text-left">
+                       <label className="text-xs text-slate-400 font-bold ml-1 uppercase tracking-wider">โหมดการทำงาน (REPEAT)</label>
+                       <div className="flex gap-2 mt-2 bg-slate-100 p-1 rounded-xl">
+                          <button onClick={() => setScheduleConfig({...scheduleConfig, repeatMode: 'once'})} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${scheduleConfig.repeatMode === 'once' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>ครั้งเดียว</button>
+                          <button onClick={() => setScheduleConfig({...scheduleConfig, repeatMode: 'everyday'})} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${scheduleConfig.repeatMode === 'everyday' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>ทุกวัน</button>
+                          <button onClick={() => setScheduleConfig({...scheduleConfig, repeatMode: 'custom'})} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${scheduleConfig.repeatMode === 'custom' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>เลือกวัน</button>
+                       </div>
+                    </div>
+                     {scheduleConfig.repeatMode === 'custom' && (
+                        <div className="mb-6 flex justify-between gap-1">
+                            {days.map((d, index) => (
+                                <button key={index} onClick={() => toggleDaySelection(index)} className={`w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center transition-colors ${scheduleConfig.selectedDays.includes(index) ? 'bg-emerald-500 text-white shadow-md shadow-emerald-200' : 'bg-slate-100 text-slate-400'}`}>{d}</button>
+                            ))}
+                        </div>
+                    )}
+                  </div>
+              )}
+
+              <div className="flex gap-3 mt-8">
+                <button onClick={() => setShowTimerModal(false)} className="flex-1 py-3.5 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-colors active:scale-95">ยกเลิก</button>
+                <button onClick={confirmTimerSettings} className="flex-1 py-3.5 rounded-xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all active:scale-95 active:shadow-none">{timerMode === 'timer' ? 'เริ่มทำงาน' : 'บันทึกเวลา'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {isAddRuleModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -592,6 +689,8 @@ const SmartFarmPro = () => {
           {/* 5. HISTORY */}
           {activeTab === 'history' && (
             <div className="space-y-6">
+              <div className="flex gap-2 mb-4"><button className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium shadow-sm hover:bg-slate-50">วันนี้ (24h)</button><button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">7 วัน</button><button className="px-4 py-2 bg-transparent text-slate-400 rounded-lg text-sm font-medium hover:text-slate-600">30 วัน</button></div>
+              
               {/* Air Graph */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Wind size={20} className="text-blue-500"/> สภาพอากาศ (Air Condition)</h3>
@@ -616,62 +715,62 @@ const SmartFarmPro = () => {
 
               {/* Soil Graph */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                 <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Layers size={20} className="text-emerald-500"/> ดิน (Soil Condition)</h3>
-                 <div className="h-80 w-full">
+                  <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Layers size={20} className="text-emerald-500"/> ดิน (Soil Condition)</h3>
+                  <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={graphData}>
-                         <defs>
-                           <linearGradient id="colorSoilHum" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
-                           <linearGradient id="colorSoilTemp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/><stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/></linearGradient>
-                         </defs>
-                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                         <XAxis dataKey="time" />
-                         <YAxis />
-                         <Tooltip contentStyle={{ borderRadius: '12px' }} />
-                         <Legend />
-                         <Area type="monotone" dataKey="soilMoisture" stroke="#10b981" fill="url(#colorSoilHum)" name="Soil Moisture (%)" strokeWidth={2} />
-                         <Area type="monotone" dataKey="soilTemp" stroke="#f59e0b" fill="url(#colorSoilTemp)" name="Soil Temp (°C)" strokeWidth={2} />
+                          <defs>
+                            <linearGradient id="colorSoilHum" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
+                            <linearGradient id="colorSoilTemp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/><stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/></linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="time" />
+                          <YAxis />
+                          <Tooltip contentStyle={{ borderRadius: '12px' }} />
+                          <Legend />
+                          <Area type="monotone" dataKey="soilMoisture" stroke="#10b981" fill="url(#colorSoilHum)" name="Soil Moisture (%)" strokeWidth={2} />
+                          <Area type="monotone" dataKey="soilTemp" stroke="#f59e0b" fill="url(#colorSoilTemp)" name="Soil Temp (°C)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
-                 </div>
+                  </div>
               </div>
               
               {/* Chemical & Nutrient Graphs */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Activity size={20} className="text-purple-500"/> เคมีในดิน (Chemical)</h3>
                     <div className="h-64 w-full">
-                       <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%">
                           <ComposedChart data={graphData}>
-                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                             <XAxis dataKey="time" hide />
-                             <YAxis yAxisId="left" domain={[0, 14]} label={{ value: 'pH', angle: -90, position: 'insideLeft' }} />
-                             <YAxis yAxisId="right" orientation="right" domain={[0, 5]} label={{ value: 'EC', angle: 90, position: 'insideRight' }} />
-                             <Tooltip />
-                             <Legend />
-                             <Line yAxisId="left" type="monotone" dataKey="ph" stroke="#8b5cf6" name="pH" strokeWidth={2} dot={false} />
-                             <Line yAxisId="right" type="monotone" dataKey="ec" stroke="#6366f1" name="EC (mS/cm)" strokeWidth={2} dot={false} />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="time" hide />
+                              <YAxis yAxisId="left" domain={[0, 14]} label={{ value: 'pH', angle: -90, position: 'insideLeft' }} />
+                              <YAxis yAxisId="right" orientation="right" domain={[0, 5]} label={{ value: 'EC', angle: 90, position: 'insideRight' }} />
+                              <Tooltip />
+                              <Legend />
+                              <Line yAxisId="left" type="monotone" dataKey="ph" stroke="#8b5cf6" name="pH" strokeWidth={2} dot={false} />
+                              <Line yAxisId="right" type="monotone" dataKey="ec" stroke="#6366f1" name="EC (mS/cm)" strokeWidth={2} dot={false} />
                           </ComposedChart>
-                       </ResponsiveContainer>
+                        </ResponsiveContainer>
                     </div>
-                 </div>
-                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Sprout size={20} className="text-green-600"/> ธาตุอาหาร (Nutrients)</h3>
                     <div className="h-64 w-full">
-                       <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={graphData}>
-                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                             <XAxis dataKey="time" hide />
-                             <YAxis />
-                             <Tooltip />
-                             <Legend />
-                             <Bar dataKey="n" fill="#3b82f6" name="N" stackId="a" />
-                             <Bar dataKey="p" fill="#f59e0b" name="P" stackId="a" />
-                             <Bar dataKey="k" fill="#ef4444" name="K" stackId="a" />
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="time" hide />
+                              <YAxis />
+                              <Tooltip />
+                              <Legend />
+                              <Bar dataKey="n" fill="#3b82f6" name="N" stackId="a" />
+                              <Bar dataKey="p" fill="#f59e0b" name="P" stackId="a" />
+                              <Bar dataKey="k" fill="#ef4444" name="K" stackId="a" />
                           </BarChart>
-                       </ResponsiveContainer>
+                        </ResponsiveContainer>
                     </div>
-                 </div>
+                  </div>
               </div>
             </div>
           )}
@@ -681,7 +780,7 @@ const SmartFarmPro = () => {
             <div className="space-y-6">
               <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-slate-800">กฎการทำงานอัตโนมัติ (Automation Rules)</h3><button onClick={() => setIsAddRuleModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium shadow-md shadow-slate-200"><Plus size={16} /> เพิ่มกฎใหม่ (Add Rule)</button></div>
               <div className="grid gap-4">
-                {rules.map(rule => (<div key={rule.id} className={`bg-white p-6 rounded-2xl shadow-sm border-l-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${rule.active ? 'border-l-emerald-500' : 'border-l-slate-300'}`}><div className="flex-1"><div className="flex items-center gap-2 mb-2"><h4 className="font-bold text-lg text-slate-800">{rule.name}</h4><span className={`px-2 py-0.5 rounded text-xs font-bold ${rule.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{rule.active ? 'ACTIVE' : 'INACTIVE'}</span></div><div className="flex items-center gap-4 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg inline-flex flex-wrap"><span className="font-mono font-medium text-blue-600 uppercase flex items-center gap-1">IF {getSensorLabel(rule.sensor)} {rule.operator} {rule.value}</span><span className="text-slate-400"><ChevronRight size={16}/></span><span className="font-mono font-medium text-emerald-600 uppercase flex items-center gap-1">THEN {getDeviceName(rule.actionDevice)} {rule.actionDevice === 'notify' ? '' : (rule.actionState ? '(ON)' : '(OFF)')}</span></div></div><div className="flex items-center gap-4"><label className="relative inline-flex items-center cursor-pointer" title="เปิด/ปิด กฎนี้"><input type="checkbox" checked={rule.active} onChange={() => toggleRule(rule.id)} className="sr-only peer" /><div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div></label><button onClick={() => deleteRule(rule.id, rule.name)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="ลบกฎ"><Trash2 size={20} /></button></div></div>))}
+                {rules.map(rule => (<div key={rule.id} className={`bg-white p-6 rounded-2xl shadow-sm border-l-4 flex flex-col md:flex-row md:items-center justify-between gap-4 ${rule.active ? 'border-l-emerald-500' : 'border-l-slate-300'}`}><div className="flex-1"><div className="flex items-center gap-2 mb-2"><h4 className="font-bold text-lg text-slate-800">{rule.name}</h4><span className={`px-2 py-0.5 rounded text-xs font-bold ${rule.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{rule.active ? 'ACTIVE' : 'INACTIVE'}</span></div><div className="flex items-center gap-4 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg inline-flex flex-wrap"><span className="font-mono font-medium text-blue-600 uppercase flex items-center gap-1">IF {rule.sensor} {rule.operator} {rule.value}</span><span className="text-slate-400"><ChevronRight size={16}/></span><span className="font-mono font-medium text-emerald-600 uppercase flex items-center gap-1">THEN {rule.actionDevice} {rule.actionDevice === 'notify' ? '' : (rule.actionState ? '(ON)' : '(OFF)')}</span></div></div><div className="flex items-center gap-4"><label className="relative inline-flex items-center cursor-pointer" title="เปิด/ปิด กฎนี้"><input type="checkbox" checked={rule.active} onChange={() => toggleRule(rule.id)} className="sr-only peer" /><div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div></label><button onClick={() => deleteRule(rule.id, rule.name)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="ลบกฎ"><Trash2 size={20} /></button></div></div>))}
                 {rules.length === 0 && (<div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-slate-200 text-slate-400"><p>ยังไม่มีกฎอัตโนมัติ กดปุ่ม "เพิ่มกฎใหม่" เพื่อเริ่มต้น</p></div>)}
               </div>
             </div>
